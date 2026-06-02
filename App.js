@@ -715,6 +715,8 @@ const saveOnboardingData = async (session, stored) => {
   console.log('[DEBUG] users upsert response:', JSON.stringify({ data: userData, error: userError }, null, 2));
   if (userError) throw userError;
 
+  const sexDb = (stored.onboarding_sex ?? '').toLowerCase();
+
   const moodDisplay = stored.onboarding_mood ?? '';
   const moodDb =
     moodDisplay.includes('great') ? 'great' :
@@ -728,7 +730,7 @@ const saveOnboardingData = async (session, stored) => {
       owner_id: userId,
       dog_name: stored.onboarding_dogName,
       breed: stored.onboarding_breed,
-      sex: stored.onboarding_sex,
+      sex: sexDb,
       date_of_birth: ageToDOB(stored.onboarding_age),
       pre_existing_health_conditions:
         stored.onboarding_hasCondition === 'true'
