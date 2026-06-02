@@ -708,7 +708,7 @@ const saveOnboardingData = async (session, stored) => {
 
   console.log('[DEBUG] upserting users table...');
   const { data: userData, error: userError } = await supabase.from('users').upsert({
-    id: userId,
+    user_id: userId,
     first_name: stored.onboarding_userName,
     email,
   }).select();
@@ -730,7 +730,7 @@ const saveOnboardingData = async (session, stored) => {
           : null,
       current_mood_at_onboarding: stored.onboarding_mood,
     })
-    .select('id')
+    .select('dog_id')
     .single();
   console.log('[DEBUG] dogs insert response:', JSON.stringify({ data: dog, error: dogError }, null, 2));
   if (dogError) throw dogError;
@@ -739,7 +739,7 @@ const saveOnboardingData = async (session, stored) => {
   const { data: memberData, error: memberError } = await supabase.from('family_members').insert({
     owner_id: userId,
     member_user_id: userId,
-    dog_id: dog.id,
+    dog_id: dog.dog_id,
     role: 'primary_owner',
     can_log: true,
     can_view: true,
