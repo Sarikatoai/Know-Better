@@ -715,6 +715,12 @@ const saveOnboardingData = async (session, stored) => {
   console.log('[DEBUG] users upsert response:', JSON.stringify({ data: userData, error: userError }, null, 2));
   if (userError) throw userError;
 
+  const moodDisplay = stored.onboarding_mood ?? '';
+  const moodDb =
+    moodDisplay.includes('great') ? 'great' :
+    moodDisplay.includes('a little off') ? 'a_little_off' :
+    'not_sure';
+
   console.log('[DEBUG] inserting dogs table...');
   const { data: dog, error: dogError } = await supabase
     .from('dogs')
@@ -728,7 +734,7 @@ const saveOnboardingData = async (session, stored) => {
         stored.onboarding_hasCondition === 'true'
           ? (stored.onboarding_notes || null)
           : null,
-      current_mood_at_onboarding: stored.onboarding_mood,
+      current_mood_at_onboarding: moodDb,
     })
     .select('dog_id')
     .single();
