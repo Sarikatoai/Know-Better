@@ -1,8 +1,10 @@
 import { supabase } from './lib/supabase';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import * as Linking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect, useRef } from 'react';
 import {
   Animated,
@@ -476,9 +478,16 @@ function AccountScreen({ navigation, route }) {
   const handleSendLink = async () => {
     setIsLoading(true);
     setError('');
+    await AsyncStorage.multiSet([
+      ['onboarding_userName', userName.trim()],
+      ['onboarding_dogName', dogData.dogName ?? 'your dog'],
+    ]);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { shouldCreateUser: true },
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: Linking.createURL('auth/callback'),
+      },
     });
     setIsLoading(false);
     if (authError) {
@@ -661,8 +670,59 @@ function CheckInScreen({ route }) {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const navigationRef = useNavigationContainerRef();
+
+  useEffect(() => {
+    const handleDeepLink = async (url) => {
+      if (!url) return;
+      const fragment = url.split('#')[1];
+      if (!fragment) return;
+      const params = new URLSearchParams(fragment);
+      const access_token = params.get('access_token');
+      const refresh_token = params.get('refresh_token');
+      if (access_token && refresh_token) {
+        await supabase.auth.setSession({ access_token, refresh_token });
+      }
+    };
+
+    // App opened from a cold start via deep link
+    Linking.getInitialURL().then(handleDeepLink);
+
+    // App brought to foreground via deep link
+    const linkSubscription = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
+
+    // Navigate to Congratulations when Supabase confirms sign-in
+    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          const [storedUserName, storedDogName] = await Promise.all([
+            AsyncStorage.getItem('onboarding_userName'),
+            AsyncStorage.getItem('onboarding_dogName'),
+          ]);
+          if (navigationRef.isReady()) {
+            navigationRef.reset({
+              index: 0,
+              routes: [{
+                name: 'Congratulations',
+                params: {
+                  userName: storedUserName ?? 'there',
+                  dogName: storedDogName ?? 'your dog',
+                },
+              }],
+            });
+          }
+        }
+      }
+    );
+
+    return () => {
+      linkSubscription.remove();
+      authSubscription.unsubscribe();
+    };
+  }, []);
+
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{
           headerTitle: '',
           headerTransparent: true,
