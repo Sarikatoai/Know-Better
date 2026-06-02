@@ -1,3 +1,4 @@
+import { supabase } from './lib/supabase';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -464,12 +465,28 @@ function DogMoodScreen({ navigation, route }) {
 const isValidEmail = (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
 
 function AccountScreen({ navigation, route }) {
-  // All dog data is available here to save to Supabase after account creation
   const dogData = route.params ?? {};
   const [userName, setUserName] = useState('');
   const [email, setEmail] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const canSubmit = userName.trim().length > 0 && isValidEmail(email);
+
+  const handleSendLink = async () => {
+    setIsLoading(true);
+    setError('');
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { shouldCreateUser: true },
+    });
+    setIsLoading(false);
+    if (authError) {
+      setError('Something went wrong. Please try again.');
+    } else {
+      navigation.navigate('MagicLink', { email: email.trim(), userName, dogName: dogData.dogName });
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -503,24 +520,25 @@ function AccountScreen({ navigation, route }) {
               placeholder="I'll send your sign-in link here"
               placeholderTextColor="#AAAAAA"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(val) => { setEmail(val); setError(''); }}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="done"
             />
+            {error ? <Text style={account.error}>{error}</Text> : null}
           </View>
         </View>
       </View>
 
       <View style={account.footer}>
         <TouchableOpacity
-          style={[account.button, { backgroundColor: canSubmit ? '#0F6E56' : '#8CB5A8' }]}
+          style={[account.button, { backgroundColor: canSubmit && !isLoading ? '#0F6E56' : '#8CB5A8' }]}
           activeOpacity={0.85}
-          disabled={!canSubmit}
-          onPress={() => navigation.navigate('MagicLink', { email, userName, dogName: dogData.dogName })}
+          disabled={!canSubmit || isLoading}
+          onPress={handleSendLink}
         >
-          <Text style={account.buttonText}>Send my link</Text>
+          <Text style={account.buttonText}>{isLoading ? 'Sending…' : 'Send my link'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -1034,6 +1052,11 @@ const account = StyleSheet.create({
   },
   fieldGroup: {
     gap: 6,
+  },
+  error: {
+    fontSize: 13,
+    color: '#DC2626',
+    marginTop: 4,
   },
   label: {
     fontSize: 13,
