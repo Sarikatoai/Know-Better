@@ -531,20 +531,23 @@ function CongratulationsScreen({ navigation, route }) {
     <View style={congrats.container}>
       <StatusBar style="light" />
 
-      <View style={congrats.content}>
-        <MaterialCommunityIcons name="paw" size={80} color="#FFFFFF" />
+      {/* Hero: flex:1 + space-between mirrors Screen 1's content block exactly,
+          with mic/sample anchored to the bottom of that same space */}
+      <View style={congrats.hero}>
+        <View style={congrats.heroTop}>
+          <MaterialCommunityIcons name="paw" size={80} color="#FFFFFF" />
+          <Text style={congrats.headline}>You're all set, {userName}.</Text>
+          <Text style={congrats.subtext}>
+            I can't wait to hear about {dogName}'s day.
+          </Text>
+        </View>
 
-        <Text style={congrats.headline}>You're all set, {userName}.</Text>
-
-        <Text style={congrats.subtext}>
-          I can't wait to hear about {dogName}'s day.
-        </Text>
-
-        <Text style={congrats.mic}>🎙️</Text>
-
-        <Text style={congrats.sample}>
-          "{dogName} went out, ate breakfast, lots of energy this morning."
-        </Text>
+        <View style={congrats.heroBottom}>
+          <Text style={congrats.mic}>🎙️</Text>
+          <Text style={congrats.sample}>
+            "{dogName} went out, ate breakfast, lots of energy this morning."
+          </Text>
+        </View>
       </View>
 
       <View style={congrats.footer}>
@@ -644,7 +647,6 @@ const welcome = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 20,
-    marginTop: 120,
   },
   title: {
     fontSize: 28,
@@ -1264,19 +1266,36 @@ const congrats = StyleSheet.create({
     paddingVertical: 80,
     paddingHorizontal: 32,
   },
-  content: {
+  // flex:1 + space-between means heroTop is centered in the upper portion,
+  // heroBottom sits at the bottom of the same flex block — mirroring Screen 1's layout
+  hero: {
+    flex: 1,
+    width: '100%',
+    position: 'relative',
+  },
+  heroTop: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 18,
+    gap: 20,
   },
+  heroBottom: {
+    position: 'absolute',
+    bottom: 32,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    gap: 12,
+  },
+  // Exact match to welcome.title
   headline: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: '800',
     color: '#FFFFFF',
     textAlign: 'center',
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
   },
+  // Exact match to welcome.subtitle
   subtext: {
     fontSize: 18,
     fontWeight: '300',
@@ -1285,8 +1304,7 @@ const congrats = StyleSheet.create({
     lineHeight: 26,
   },
   mic: {
-    fontSize: 40,
-    marginTop: 8,
+    fontSize: 36,
   },
   sample: {
     fontSize: 14,
@@ -1298,6 +1316,8 @@ const congrats = StyleSheet.create({
   },
   footer: {
     width: '100%',
+    alignItems: 'center',
+    paddingBottom: 40,
   },
   button: {
     backgroundColor: '#FFFFFF',
