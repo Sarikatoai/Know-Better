@@ -866,13 +866,6 @@ function MagicLinkScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={magicLink.continueButton}
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate('Congratulations', { userName, dogName })}
-        >
-          <Text style={magicLink.continueButtonText}>Continue</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -1145,20 +1138,6 @@ const magicLink = StyleSheet.create({
   backLink: {
     fontSize: 14,
     color: '#AAAAAA',
-  },
-  continueButton: {
-    marginTop: 16,
-    backgroundColor: '#0F6E56',
-    borderRadius: 50,
-    paddingVertical: 16,
-    paddingHorizontal: 48,
-    alignItems: 'center',
-  },
-  continueButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
 });
 
