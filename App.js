@@ -2,8 +2,9 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
+  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -18,11 +19,14 @@ const Stack = createNativeStackNavigator();
 
 // ─── Mood data ───────────────────────────────────────────────────────────────
 
-const MOOD_OPTIONS = [
-  "She's been great",
-  "She's been a little off",
-  "I'm not sure",
-];
+const getMoodOptions = (sex) => {
+  const pronoun = sex === 'Male' ? "He's" : "She's";
+  return [
+    `${pronoun} been great`,
+    `${pronoun} been a little off`,
+    "I'm not sure",
+  ];
+};
 
 // ─── Age data ────────────────────────────────────────────────────────────────
 
@@ -408,6 +412,7 @@ function DogHealthScreen({ navigation, route }) {
 function DogMoodScreen({ navigation, route }) {
   const { dogName = 'your dog', breed, sex, age, hasCondition, notes } = route.params ?? {};
   const [selectedMood, setSelectedMood] = useState(null);
+  const moodOptions = getMoodOptions(sex);
 
   return (
     <View style={dogMood.container}>
@@ -422,7 +427,7 @@ function DogMoodScreen({ navigation, route }) {
         </Text>
 
         <View style={dogMood.cards}>
-          {MOOD_OPTIONS.map((option) => {
+          {moodOptions.map((option) => {
             const selected = selectedMood === option;
             return (
               <TouchableOpacity
@@ -554,10 +559,82 @@ function CongratulationsScreen({ navigation, route }) {
         <TouchableOpacity
           style={congrats.button}
           activeOpacity={0.85}
-          onPress={() => {}}
+          onPress={() => navigation.navigate('CheckIn', { userName, dogName })}
         >
           <Text style={congrats.buttonText}>Let's hear it</Text>
         </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
+
+function CheckInScreen({ route }) {
+  const { userName = 'there', dogName = 'your dog' } = route.params ?? {};
+  const [isRecording, setIsRecording] = useState(false);
+  const pulse = useRef(new Animated.Value(1)).current;
+  const ringPulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1.08, duration: 700, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        ])
+      ).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringPulse, { toValue: 1.4, duration: 900, useNativeDriver: true }),
+          Animated.timing(ringPulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      pulse.stopAnimation();
+      ringPulse.stopAnimation();
+      pulse.setValue(1);
+      ringPulse.setValue(1);
+    }
+  }, [isRecording]);
+
+  return (
+    <View style={checkIn.container}>
+      <StatusBar style="dark" />
+
+      <View style={checkIn.header}>
+        <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+        <Text style={checkIn.brand}>Know Better</Text>
+      </View>
+
+      <View style={checkIn.content}>
+        <Text style={checkIn.greeting}>Good morning, {userName}.</Text>
+        <Text style={checkIn.question}>How did {dogName}'s morning go?</Text>
+
+        <TouchableOpacity
+          style={checkIn.micOuter}
+          activeOpacity={0.9}
+          onPress={() => setIsRecording(prev => !prev)}
+        >
+          {isRecording && (
+            <Animated.View style={[checkIn.ring, { transform: [{ scale: ringPulse }] }]} />
+          )}
+          <Animated.View style={[
+            checkIn.micButton,
+            isRecording && checkIn.micButtonRecording,
+            { transform: [{ scale: pulse }] },
+          ]}>
+            <Text style={checkIn.micEmoji}>🎙️</Text>
+          </Animated.View>
+        </TouchableOpacity>
+
+        <Text style={checkIn.listening}>
+          {isRecording ? 'Recording…' : "I'm listening."}
+        </Text>
+
+        <Text style={checkIn.hint}>
+          Tap the mic and tell me about {dogName}'s morning
+        </Text>
       </View>
     </View>
   );
@@ -568,8 +645,14 @@ function CongratulationsScreen({ navigation, route }) {
 export default function App() {
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Welcome" component={WelcomeScreen} />
+      <Stack.Navigator screenOptions={{
+          headerTitle: '',
+          headerTransparent: true,
+          headerTintColor: '#0F6E56',
+          headerBackTitle: '',
+          headerShadowVisible: false,
+        }}>
+        <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="DogName" component={DogNameScreen} />
         <Stack.Screen name="DogBreed" component={DogBreedScreen} />
         <Stack.Screen name="DogAge" component={DogAgeScreen} />
@@ -577,7 +660,8 @@ export default function App() {
         <Stack.Screen name="DogMood" component={DogMoodScreen} />
         <Stack.Screen name="Account" component={AccountScreen} />
         <Stack.Screen name="MagicLink" component={MagicLinkScreen} />
-        <Stack.Screen name="Congratulations" component={CongratulationsScreen} />
+        <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -1336,5 +1420,96 @@ const congrats = StyleSheet.create({
     fontWeight: '700',
     color: '#085041',
     letterSpacing: 0.3,
+  },
+});
+
+// ─── Styles: Check-In ────────────────────────────────────────────────────────
+
+const checkIn = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    paddingTop: 64,
+    paddingHorizontal: 32,
+    paddingBottom: 48,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
+  content: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  greeting: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#085041',
+    textAlign: 'center',
+    letterSpacing: -0.3,
+  },
+  question: {
+    fontSize: 17,
+    fontWeight: '400',
+    color: '#888888',
+    textAlign: 'center',
+    lineHeight: 26,
+    marginBottom: 12,
+  },
+  micOuter: {
+    width: 120,
+    height: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ring: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(220, 38, 38, 0.2)',
+  },
+  micButton: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#0F6E56',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F6E56',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  micButtonRecording: {
+    backgroundColor: '#DC2626',
+    shadowColor: '#DC2626',
+  },
+  micEmoji: {
+    fontSize: 38,
+  },
+  listening: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    color: '#AAAAAA',
+    marginTop: 4,
+  },
+  hint: {
+    fontSize: 13,
+    color: '#CCCCCC',
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 16,
   },
 });
