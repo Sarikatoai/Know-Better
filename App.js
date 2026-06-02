@@ -7,6 +7,7 @@ import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect, useRef } from 'react';
 import {
+  Alert,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -480,7 +481,13 @@ function AccountScreen({ navigation, route }) {
     setError('');
     await AsyncStorage.multiSet([
       ['onboarding_userName', userName.trim()],
-      ['onboarding_dogName', dogData.dogName ?? 'your dog'],
+      ['onboarding_dogName', dogData.dogName ?? ''],
+      ['onboarding_breed', dogData.breed ?? ''],
+      ['onboarding_sex', dogData.sex ?? ''],
+      ['onboarding_age', dogData.age ?? ''],
+      ['onboarding_hasCondition', dogData.hasCondition ? 'true' : 'false'],
+      ['onboarding_notes', dogData.notes ?? ''],
+      ['onboarding_mood', dogData.mood ?? ''],
     ]);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
@@ -667,6 +674,61 @@ function CheckInScreen({ route }) {
   );
 }
 
+// ─── Onboarding save helpers ─────────────────────────────────────────────────
+
+const ageToDOB = (ageStr) => {
+  const d = new Date();
+  if (ageStr === 'Less than 1 year') {
+    d.setMonth(d.getMonth() - 6);
+    return d.toISOString().split('T')[0];
+  }
+  const num = parseInt(ageStr, 10);
+  if (isNaN(num)) return null;
+  d.setFullYear(d.getFullYear() - num);
+  return d.toISOString().split('T')[0];
+};
+
+const saveOnboardingData = async (session, stored) => {
+  const userId = session.user.id;
+  const email = session.user.email;
+
+  const { error: userError } = await supabase.from('users').upsert({
+    id: userId,
+    first_name: stored.onboarding_userName,
+    email,
+  });
+  if (userError) throw userError;
+
+  const { data: dog, error: dogError } = await supabase
+    .from('dogs')
+    .insert({
+      owner_id: userId,
+      dog_name: stored.onboarding_dogName,
+      breed: stored.onboarding_breed,
+      sex: stored.onboarding_sex,
+      date_of_birth: ageToDOB(stored.onboarding_age),
+      pre_existing_health_conditions:
+        stored.onboarding_hasCondition === 'true'
+          ? (stored.onboarding_notes || null)
+          : null,
+      current_mood_at_onboarding: stored.onboarding_mood,
+    })
+    .select('id')
+    .single();
+  if (dogError) throw dogError;
+
+  const { error: memberError } = await supabase.from('family_members').insert({
+    owner_id: userId,
+    member_user_id: userId,
+    dog_id: dog.id,
+    role: 'primary_owner',
+    can_log: true,
+    can_view: true,
+    can_manage: true,
+  });
+  if (memberError) throw memberError;
+};
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -691,26 +753,41 @@ export default function App() {
     // App brought to foreground via deep link
     const linkSubscription = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
 
-    // Navigate to Congratulations when Supabase confirms sign-in
+    // Navigate to Congratulations when Supabase confirms sign-in, then save onboarding data
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (event === 'SIGNED_IN' && session) {
-          const [storedUserName, storedDogName] = await Promise.all([
-            AsyncStorage.getItem('onboarding_userName'),
-            AsyncStorage.getItem('onboarding_dogName'),
+          const pairs = await AsyncStorage.multiGet([
+            'onboarding_userName',
+            'onboarding_dogName',
+            'onboarding_breed',
+            'onboarding_sex',
+            'onboarding_age',
+            'onboarding_hasCondition',
+            'onboarding_notes',
+            'onboarding_mood',
           ]);
+          const stored = Object.fromEntries(pairs);
+
           if (navigationRef.isReady()) {
             navigationRef.reset({
               index: 0,
               routes: [{
                 name: 'Congratulations',
                 params: {
-                  userName: storedUserName ?? 'there',
-                  dogName: storedDogName ?? 'your dog',
+                  userName: stored.onboarding_userName ?? 'there',
+                  dogName: stored.onboarding_dogName ?? 'your dog',
                 },
               }],
             });
           }
+
+          saveOnboardingData(session, stored).catch(() => {
+            Alert.alert(
+              'Sync failed',
+              "Your account was created but we couldn't save your dog's info. Please try again later."
+            );
+          });
         }
       }
     );
