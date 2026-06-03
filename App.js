@@ -779,7 +779,15 @@ function CheckInScreen({ route }) {
       if (!uri) { setRecordingState('idle'); return; }
 
       const formData = new FormData();
-      formData.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' });
+      if (Platform.OS === 'web') {
+        // On web the URI is a blob URL — fetch it to get the real blob data
+        const blobResponse = await fetch(uri);
+        const blob = await blobResponse.blob();
+        const file = new File([blob], 'recording.m4a', { type: 'audio/m4a' });
+        formData.append('file', file);
+      } else {
+        formData.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' });
+      }
       formData.append('model', 'whisper-1');
       formData.append('language', 'en');
 
