@@ -691,6 +691,9 @@ function CheckInScreen({ route }) {
 
   useEffect(() => {
     const init = async () => {
+      const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+      console.log('[ENV] EXPO_PUBLIC_OPENAI_API_KEY first 10 chars:', key ? key.slice(0, 10) : 'UNDEFINED — restart Metro after .env changes');
+
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
         setPermissionDenied(true);
