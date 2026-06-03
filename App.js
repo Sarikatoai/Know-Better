@@ -111,10 +111,12 @@ function WelcomeScreen({ navigation }) {
           <Text style={welcome.buttonText}>Let's Go</Text>
         </TouchableOpacity>
 
-        <Text style={welcome.signIn}>
-          Already have an account?{' '}
-          <Text style={welcome.signInLink}>Sign in</Text>
-        </Text>
+        <TouchableOpacity onPress={() => navigation.navigate('SignIn')} activeOpacity={0.7}>
+          <Text style={welcome.signIn}>
+            Already have an account?{' '}
+            <Text style={welcome.signInLink}>Sign in</Text>
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -561,6 +563,77 @@ function AccountScreen({ navigation, route }) {
   );
 }
 
+// ─── Screen: Sign In (returning users) ──────────────────────────────────────
+
+function SignInScreen({ navigation }) {
+  const [email, setEmail] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const canSubmit = isValidEmail(email);
+
+  const handleSendLink = async () => {
+    setIsLoading(true);
+    setError('');
+    await AsyncStorage.setItem('signin_isReturning', 'true');
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: Linking.createURL('auth/callback'),
+      },
+    });
+    setIsLoading(false);
+    if (authError) {
+      setError('Something went wrong. Please try again.');
+    } else {
+      navigation.navigate('MagicLink', { email: email.trim() });
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={signIn.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <View style={signIn.inner}>
+        <View style={signIn.intro}>
+          <Text style={signIn.headline}>Welcome back.</Text>
+          <Text style={signIn.subtext}>I'll send you a sign-in link.</Text>
+        </View>
+
+        <View style={signIn.form}>
+          <TextInput
+            style={signIn.input}
+            placeholder="Your email address"
+            placeholderTextColor="#AAAAAA"
+            value={email}
+            onChangeText={(val) => { setEmail(val); setError(''); }}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={canSubmit && !isLoading ? handleSendLink : undefined}
+          />
+          {error ? <Text style={signIn.error}>{error}</Text> : null}
+        </View>
+      </View>
+
+      <View style={signIn.footer}>
+        <TouchableOpacity
+          style={[signIn.button, { backgroundColor: canSubmit && !isLoading ? '#0F6E56' : '#8CB5A8' }]}
+          activeOpacity={0.85}
+          disabled={!canSubmit || isLoading}
+          onPress={handleSendLink}
+        >
+          <Text style={signIn.buttonText}>{isLoading ? 'Sending…' : 'Send my link'}</Text>
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
 // ─── Screen 9: Congratulations ───────────────────────────────────────────────
 
 function CongratulationsScreen({ navigation, route }) {
@@ -845,29 +918,46 @@ export default function App() {
             'onboarding_hasCondition',
             'onboarding_notes',
             'onboarding_mood',
+            'signin_isReturning',
           ]);
           const stored = Object.fromEntries(pairs);
 
-          if (navigationRef.isReady()) {
-            navigationRef.reset({
-              index: 0,
-              routes: [{
-                name: 'Congratulations',
-                params: {
-                  userName: stored.onboarding_userName ?? 'there',
-                  dogName: stored.onboarding_dogName ?? 'your dog',
-                },
-              }],
+          if (stored.signin_isReturning === 'true') {
+            await AsyncStorage.removeItem('signin_isReturning');
+            const { data: dog } = await supabase
+              .from('dogs')
+              .select('dog_id')
+              .eq('owner_id', session.user.id)
+              .limit(1)
+              .maybeSingle();
+            if (navigationRef.isReady()) {
+              navigationRef.reset({
+                index: 0,
+                routes: [{ name: dog ? 'CheckIn' : 'Congratulations' }],
+              });
+            }
+          } else {
+            if (navigationRef.isReady()) {
+              navigationRef.reset({
+                index: 0,
+                routes: [{
+                  name: 'Congratulations',
+                  params: {
+                    userName: stored.onboarding_userName ?? 'there',
+                    dogName: stored.onboarding_dogName ?? 'your dog',
+                  },
+                }],
+              });
+            }
+
+            saveOnboardingData(session, stored).catch((err) => {
+              console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
+              Alert.alert(
+                'Sync failed',
+                "Your account was created but we couldn't save your dog's info. Please try again later."
+              );
             });
           }
-
-          saveOnboardingData(session, stored).catch((err) => {
-            console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
-            Alert.alert(
-              'Sync failed',
-              "Your account was created but we couldn't save your dog's info. Please try again later."
-            );
-          });
         }
       }
     );
@@ -895,6 +985,7 @@ export default function App() {
         <Stack.Screen name="DogMood" component={DogMoodScreen} />
         <Stack.Screen name="Account" component={AccountScreen} />
         <Stack.Screen name="MagicLink" component={MagicLinkScreen} />
+        <Stack.Screen name="SignIn" component={SignInScreen} />
         <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
@@ -1259,6 +1350,67 @@ const account = StyleSheet.create({
     fontWeight: '600',
     color: '#555555',
     letterSpacing: 0.2,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    fontSize: 16,
+    color: '#111111',
+    backgroundColor: '#F7F7F7',
+  },
+  button: {
+    borderRadius: 50,
+    paddingVertical: 18,
+    alignItems: 'center',
+  },
+  buttonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+});
+
+// ─── Styles: Sign In ─────────────────────────────────────────────────────────
+
+const signIn = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 28,
+    paddingTop: 60,
+    justifyContent: 'space-between',
+  },
+  inner: {
+    gap: 36,
+  },
+  intro: {
+    gap: 10,
+  },
+  footer: {
+    paddingBottom: 48,
+    paddingTop: 16,
+  },
+  headline: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#0F6E56',
+    letterSpacing: -0.5,
+  },
+  subtext: {
+    fontSize: 17,
+    color: '#888888',
+  },
+  form: {
+    gap: 20,
+  },
+  error: {
+    fontSize: 13,
+    color: '#DC2626',
+    marginTop: 4,
   },
   input: {
     borderWidth: 1,
