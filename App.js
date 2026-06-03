@@ -605,13 +605,30 @@ function CongratulationsScreen({ navigation, route }) {
 // ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
 
 function CheckInScreen({ route }) {
-  const { userName = 'there', dogName = 'your dog' } = route.params ?? {};
-  const [isRecording, setIsRecording] = useState(false);
+  const { userName: paramUserName, dogName: paramDogName } = route.params ?? {};
+  const [userName, setUserName] = useState(paramUserName ?? '');
+  const [dogName, setDogName] = useState(paramDogName ?? '');
+  const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (isRecording) {
+    const fetchUserData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const userId = session.user.id;
+      const [userResult, dogResult] = await Promise.all([
+        supabase.from('users').select('first_name').eq('user_id', userId).single(),
+        supabase.from('dogs').select('dog_name').eq('owner_id', userId).limit(1).single(),
+      ]);
+      if (userResult.data?.first_name) setUserName(userResult.data.first_name);
+      if (dogResult.data?.dog_name) setDogName(dogResult.data.dog_name);
+    };
+    fetchUserData();
+  }, []);
+
+  useEffect(() => {
+    if (recordingState === 'recording') {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulse, { toValue: 1.08, duration: 700, useNativeDriver: true }),
@@ -630,7 +647,18 @@ function CheckInScreen({ route }) {
       pulse.setValue(1);
       ringPulse.setValue(1);
     }
-  }, [isRecording]);
+  }, [recordingState]);
+
+  const handleMicPress = () => {
+    if (recordingState === 'idle') {
+      setRecordingState('recording');
+    } else if (recordingState === 'recording') {
+      setRecordingState('processing');
+    }
+  };
+
+  const isRecording = recordingState === 'recording';
+  const isProcessing = recordingState === 'processing';
 
   return (
     <View style={checkIn.container}>
@@ -642,13 +670,14 @@ function CheckInScreen({ route }) {
       </View>
 
       <View style={checkIn.content}>
-        <Text style={checkIn.greeting}>Good morning, {userName}.</Text>
-        <Text style={checkIn.question}>How did {dogName}'s morning go?</Text>
+        <Text style={checkIn.greeting}>Good morning, {userName || 'there'}.</Text>
+        <Text style={checkIn.question}>How did {dogName || 'your dog'}'s morning go?</Text>
 
         <TouchableOpacity
           style={checkIn.micOuter}
-          activeOpacity={0.9}
-          onPress={() => setIsRecording(prev => !prev)}
+          activeOpacity={isProcessing ? 1 : 0.9}
+          onPress={isProcessing ? undefined : handleMicPress}
+          disabled={isProcessing}
         >
           {isRecording && (
             <Animated.View style={[checkIn.ring, { transform: [{ scale: ringPulse }] }]} />
@@ -656,6 +685,7 @@ function CheckInScreen({ route }) {
           <Animated.View style={[
             checkIn.micButton,
             isRecording && checkIn.micButtonRecording,
+            isProcessing && checkIn.micButtonProcessing,
             { transform: [{ scale: pulse }] },
           ]}>
             <Text style={checkIn.micEmoji}>🎙️</Text>
@@ -663,12 +693,14 @@ function CheckInScreen({ route }) {
         </TouchableOpacity>
 
         <Text style={checkIn.listening}>
-          {isRecording ? 'Recording…' : "I'm listening."}
+          {isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
         </Text>
 
-        <Text style={checkIn.hint}>
-          Tap the mic and tell me about {dogName}'s morning
-        </Text>
+        {recordingState === 'idle' && (
+          <Text style={checkIn.hint}>
+            Tap the mic and tell me about {dogName || 'your dog'}'s morning
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -761,9 +793,26 @@ export default function App() {
     // App brought to foreground via deep link
     const linkSubscription = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
 
-    // Navigate to Congratulations when Supabase confirms sign-in, then save onboarding data
+    const navigateWhenReady = (routes) => {
+      if (navigationRef.isReady()) {
+        navigationRef.reset({ index: 0, routes });
+      } else {
+        setTimeout(() => navigateWhenReady(routes), 50);
+      }
+    };
+
+    // Single source of truth for auth-driven navigation
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('[Auth] event:', event, '| session:', session ? 'exists' : 'null');
+
+        if (event === 'INITIAL_SESSION') {
+          if (session) {
+            navigateWhenReady([{ name: 'CheckIn' }]);
+          }
+          return;
+        }
+
         if (event === 'SIGNED_IN' && session) {
           const pairs = await AsyncStorage.multiGet([
             'onboarding_userName',
@@ -1642,6 +1691,10 @@ const checkIn = StyleSheet.create({
   micButtonRecording: {
     backgroundColor: '#DC2626',
     shadowColor: '#DC2626',
+  },
+  micButtonProcessing: {
+    backgroundColor: '#AAAAAA',
+    shadowColor: '#AAAAAA',
   },
   micEmoji: {
     fontSize: 38,
