@@ -1,4 +1,5 @@
 import { supabase } from './lib/supabase';
+import { Audio } from 'expo-av';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -681,11 +682,20 @@ function CheckInScreen({ route }) {
   const [userName, setUserName] = useState(paramUserName ?? '');
   const [dogName, setDogName] = useState(paramDogName ?? '');
   const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
+  const [transcription, setTranscription] = useState('');
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
+  const recordingRef = useRef(null);
+  const autoStopRef = useRef(null);
 
   useEffect(() => {
-    const fetchUserData = async () => {
+    const init = async () => {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        setPermissionDenied(true);
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       const userId = session.user.id;
@@ -696,7 +706,15 @@ function CheckInScreen({ route }) {
       if (userResult.data?.first_name) setUserName(userResult.data.first_name);
       if (dogResult.data?.dog_name) setDogName(dogResult.data.dog_name);
     };
-    fetchUserData();
+    init();
+
+    return () => {
+      if (autoStopRef.current) clearTimeout(autoStopRef.current);
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+        recordingRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -721,12 +739,70 @@ function CheckInScreen({ route }) {
     }
   }, [recordingState]);
 
-  const handleMicPress = () => {
-    if (recordingState === 'idle') {
+  const startRecording = async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      recordingRef.current = recording;
       setRecordingState('recording');
-    } else if (recordingState === 'recording') {
-      setRecordingState('processing');
+      autoStopRef.current = setTimeout(() => stopAndTranscribe(), 60000);
+    } catch (err) {
+      console.log('[Audio] startRecording error:', err);
     }
+  };
+
+  const stopAndTranscribe = async () => {
+    if (autoStopRef.current) {
+      clearTimeout(autoStopRef.current);
+      autoStopRef.current = null;
+    }
+    setRecordingState('processing');
+
+    try {
+      const recording = recordingRef.current;
+      if (!recording) return;
+
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      const uri = recording.getURI();
+      recordingRef.current = null;
+      console.log('[Audio] recording URI:', uri);
+
+      if (!uri) { setRecordingState('idle'); return; }
+
+      const formData = new FormData();
+      formData.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' });
+      formData.append('model', 'whisper-1');
+      formData.append('language', 'en');
+
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}`,
+        },
+        body: formData,
+      });
+      const result = await response.json();
+      console.log('[Whisper] result:', JSON.stringify(result));
+
+      if (result.text) {
+        setTranscription(result.text);
+      }
+    } catch (err) {
+      console.log('[Whisper] error:', err);
+    } finally {
+      setRecordingState('idle');
+    }
+  };
+
+  const handleMicPress = () => {
+    if (recordingState === 'idle') startRecording();
+    else if (recordingState === 'recording') stopAndTranscribe();
   };
 
   const isRecording = recordingState === 'recording';
@@ -745,33 +821,47 @@ function CheckInScreen({ route }) {
         <Text style={checkIn.greeting}>Good morning, {userName || 'there'}.</Text>
         <Text style={checkIn.question}>How did {dogName || 'your dog'}'s morning go?</Text>
 
-        <TouchableOpacity
-          style={checkIn.micOuter}
-          activeOpacity={isProcessing ? 1 : 0.9}
-          onPress={isProcessing ? undefined : handleMicPress}
-          disabled={isProcessing}
-        >
-          {isRecording && (
-            <Animated.View style={[checkIn.ring, { transform: [{ scale: ringPulse }] }]} />
-          )}
-          <Animated.View style={[
-            checkIn.micButton,
-            isRecording && checkIn.micButtonRecording,
-            isProcessing && checkIn.micButtonProcessing,
-            { transform: [{ scale: pulse }] },
-          ]}>
-            <Text style={checkIn.micEmoji}>🎙️</Text>
-          </Animated.View>
-        </TouchableOpacity>
-
-        <Text style={checkIn.listening}>
-          {isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
-        </Text>
-
-        {recordingState === 'idle' && (
-          <Text style={checkIn.hint}>
-            Tap the mic and tell me about {dogName || 'your dog'}'s morning
+        {permissionDenied ? (
+          <Text style={checkIn.permissionError}>
+            Microphone access is required. Please enable it in your device settings.
           </Text>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={checkIn.micOuter}
+              activeOpacity={isProcessing ? 1 : 0.9}
+              onPress={isProcessing ? undefined : handleMicPress}
+              disabled={isProcessing}
+            >
+              {isRecording && (
+                <Animated.View style={[checkIn.ring, { transform: [{ scale: ringPulse }] }]} />
+              )}
+              <Animated.View style={[
+                checkIn.micButton,
+                isRecording && checkIn.micButtonRecording,
+                isProcessing && checkIn.micButtonProcessing,
+                { transform: [{ scale: pulse }] },
+              ]}>
+                <Text style={checkIn.micEmoji}>🎙️</Text>
+              </Animated.View>
+            </TouchableOpacity>
+
+            <Text style={checkIn.listening}>
+              {isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
+            </Text>
+
+            {recordingState === 'idle' && !transcription && (
+              <Text style={checkIn.hint}>
+                Tap the mic and tell me about {dogName || 'your dog'}'s morning
+              </Text>
+            )}
+
+            {!!transcription && (
+              <View style={checkIn.transcriptionCard}>
+                <Text style={checkIn.transcriptionText}>{transcription}</Text>
+              </View>
+            )}
+          </>
         )}
       </View>
     </View>
@@ -1886,5 +1976,24 @@ const checkIn = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: 16,
+  },
+  permissionError: {
+    fontSize: 15,
+    color: '#DC2626',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 16,
+  },
+  transcriptionCard: {
+    backgroundColor: '#F0F9F6',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 8,
+    width: '100%',
+  },
+  transcriptionText: {
+    fontSize: 16,
+    color: '#222222',
+    lineHeight: 24,
   },
 });
