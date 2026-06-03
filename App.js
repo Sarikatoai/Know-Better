@@ -575,7 +575,6 @@ function SignInScreen({ navigation }) {
   const handleSendLink = async () => {
     setIsLoading(true);
     setError('');
-    await AsyncStorage.setItem('signin_isReturning', 'true');
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
@@ -909,34 +908,35 @@ export default function App() {
         }
 
         if (event === 'SIGNED_IN' && session) {
-          const pairs = await AsyncStorage.multiGet([
-            'onboarding_userName',
-            'onboarding_dogName',
-            'onboarding_breed',
-            'onboarding_sex',
-            'onboarding_age',
-            'onboarding_hasCondition',
-            'onboarding_notes',
-            'onboarding_mood',
-            'signin_isReturning',
-          ]);
-          const stored = Object.fromEntries(pairs);
+          console.log('[DEBUG] SIGNED_IN — querying dogs for owner_id:', session.user.id);
+          const { data: dog, error: dogQueryError } = await supabase
+            .from('dogs')
+            .select('dog_id')
+            .eq('owner_id', session.user.id)
+            .limit(1)
+            .maybeSingle();
+          console.log('[DEBUG] dogs query result:', JSON.stringify({ data: dog, error: dogQueryError }, null, 2));
 
-          if (stored.signin_isReturning === 'true') {
-            await AsyncStorage.removeItem('signin_isReturning');
-            const { data: dog } = await supabase
-              .from('dogs')
-              .select('dog_id')
-              .eq('owner_id', session.user.id)
-              .limit(1)
-              .maybeSingle();
+          if (dog) {
             if (navigationRef.isReady()) {
               navigationRef.reset({
                 index: 0,
-                routes: [{ name: dog ? 'CheckIn' : 'Congratulations' }],
+                routes: [{ name: 'CheckIn' }],
               });
             }
           } else {
+            const pairs = await AsyncStorage.multiGet([
+              'onboarding_userName',
+              'onboarding_dogName',
+              'onboarding_breed',
+              'onboarding_sex',
+              'onboarding_age',
+              'onboarding_hasCondition',
+              'onboarding_notes',
+              'onboarding_mood',
+            ]);
+            const stored = Object.fromEntries(pairs);
+
             if (navigationRef.isReady()) {
               navigationRef.reset({
                 index: 0,
