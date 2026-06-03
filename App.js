@@ -688,6 +688,7 @@ function CheckInScreen({ route }) {
   const ringPulse = useRef(new Animated.Value(1)).current;
   const recordingRef = useRef(null);
   const autoStopRef = useRef(null);
+  const recordingStartRef = useRef(null);
 
   useEffect(() => {
     const init = async () => {
@@ -752,6 +753,7 @@ function CheckInScreen({ route }) {
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
       recordingRef.current = recording;
+      recordingStartRef.current = Date.now();
       setRecordingState('recording');
       autoStopRef.current = setTimeout(() => stopAndTranscribe(), 60000);
     } catch (err) {
@@ -777,6 +779,15 @@ function CheckInScreen({ route }) {
       console.log('[Audio] recording URI:', uri);
 
       if (!uri) { setRecordingState('idle'); return; }
+
+      const durationSecs = ((Date.now() - (recordingStartRef.current ?? Date.now())) / 1000).toFixed(1);
+      console.log('[Audio] recording duration:', durationSecs, 'seconds');
+
+      if (parseFloat(durationSecs) < 2) {
+        setTranscription('Hold the mic button while speaking');
+        setRecordingState('idle');
+        return;
+      }
 
       const formData = new FormData();
       if (Platform.OS === 'web') {
