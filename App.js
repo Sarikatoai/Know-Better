@@ -724,11 +724,27 @@ const saveOnboardingData = async (session, stored) => {
   const userId = session.user.id;
   const email = session.user.email;
 
-  const { error: userError } = await supabase.from('users').upsert({
+  console.log('[DEBUG] saveOnboardingData called');
+  console.log('[DEBUG] auth user:', JSON.stringify(session.user, null, 2));
+  console.log('[DEBUG] onboarding data from AsyncStorage:', JSON.stringify({
+    userName: stored.onboarding_userName,
+    dogName: stored.onboarding_dogName,
+    breed: stored.onboarding_breed,
+    sex: stored.onboarding_sex,
+    age: stored.onboarding_age,
+    hasCondition: stored.onboarding_hasCondition,
+    notes: stored.onboarding_notes,
+    mood: stored.onboarding_mood,
+    date_of_birth_computed: ageToDOB(stored.onboarding_age),
+  }, null, 2));
+
+  console.log('[DEBUG] upserting users table...');
+  const { data: userData, error: userError } = await supabase.from('users').upsert({
     user_id: userId,
     first_name: stored.onboarding_userName,
     email,
-  });
+  }).select();
+  console.log('[DEBUG] users upsert response:', JSON.stringify({ data: userData, error: userError }, null, 2));
   if (userError) throw userError;
 
   const sexDb = (stored.onboarding_sex ?? '').toLowerCase();
@@ -739,6 +755,7 @@ const saveOnboardingData = async (session, stored) => {
     moodDisplay.includes('a little off') ? 'a_little_off' :
     'not_sure';
 
+  console.log('[DEBUG] inserting dogs table...');
   const { data: dog, error: dogError } = await supabase
     .from('dogs')
     .insert({
@@ -755,9 +772,11 @@ const saveOnboardingData = async (session, stored) => {
     })
     .select('dog_id')
     .single();
+  console.log('[DEBUG] dogs insert response:', JSON.stringify({ data: dog, error: dogError }, null, 2));
   if (dogError) throw dogError;
 
-  const { error: memberError } = await supabase.from('family_members').insert({
+  console.log('[DEBUG] inserting family_members table...');
+  const { data: memberData, error: memberError } = await supabase.from('family_members').insert({
     owner_id: userId,
     member_user_id: userId,
     dog_id: dog.dog_id,
@@ -765,8 +784,11 @@ const saveOnboardingData = async (session, stored) => {
     can_log: true,
     can_view: true,
     can_manage: true,
-  });
+  }).select();
+  console.log('[DEBUG] family_members insert response:', JSON.stringify({ data: memberData, error: memberError }, null, 2));
   if (memberError) throw memberError;
+
+  console.log('[DEBUG] saveOnboardingData completed successfully');
 };
 
 // ─── App ─────────────────────────────────────────────────────────────────────
@@ -839,7 +861,8 @@ export default function App() {
             });
           }
 
-          saveOnboardingData(session, stored).catch(() => {
+          saveOnboardingData(session, stored).catch((err) => {
+            console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
             Alert.alert(
               'Sync failed',
               "Your account was created but we couldn't save your dog's info. Please try again later."
