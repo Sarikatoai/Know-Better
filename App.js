@@ -689,32 +689,55 @@ function CheckInScreen({ route }) {
   const [dogName, setDogName] = useState(paramDogName ?? '');
   const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
   const [transcription, setTranscription] = useState('');
+  const [claudeResponse, setClaudeResponse] = useState('');
+  const [isClaudeLoading, setIsClaudeLoading] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
   const recordingRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const mediaChunksRef = useRef([]);
   const autoStopRef = useRef(null);
   const recordingStartRef = useRef(null);
+  const userIdRef = useRef(null);
+  const dogIdRef = useRef(null);
+  const familyMemberIdRef = useRef(null);
 
   useEffect(() => {
     const init = async () => {
       const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
       console.log('[ENV] EXPO_PUBLIC_OPENAI_API_KEY first 10 chars:', key ? key.slice(0, 10) : 'UNDEFINED — restart Metro after .env changes');
+      const anthropicKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+      console.log('[ENV] EXPO_PUBLIC_ANTHROPIC_API_KEY first 10 chars:', anthropicKey ? anthropicKey.slice(0, 10) : 'UNDEFINED — restart Metro after .env changes');
 
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') {
-        setPermissionDenied(true);
+      if (Platform.OS !== 'web') {
+        const { status } = await Audio.requestPermissionsAsync();
+        if (status !== 'granted') setPermissionDenied(true);
       }
 
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       const userId = session.user.id;
+      userIdRef.current = userId;
       const [userResult, dogResult] = await Promise.all([
         supabase.from('users').select('first_name').eq('user_id', userId).single(),
-        supabase.from('dogs').select('dog_name').eq('owner_id', userId).limit(1).single(),
+        supabase.from('dogs').select('dog_name, dog_id').eq('owner_id', userId).limit(1).single(),
       ]);
       if (userResult.data?.first_name) setUserName(userResult.data.first_name);
       if (dogResult.data?.dog_name) setDogName(dogResult.data.dog_name);
+      const dogId = dogResult.data?.dog_id ?? null;
+      dogIdRef.current = dogId;
+
+      const { data: familyData } = await supabase
+        .from('family_members')
+        .select('family_member_id')
+        .eq('owner_id', userId)
+        .eq('dog_id', dogId)
+        .single();
+      const familyMemberId = familyData?.family_member_id;
+      console.log('[Init] family_members result:', JSON.stringify(familyData));
+      if (familyMemberId) familyMemberIdRef.current = familyMemberId;
+      console.log('[Init] IDs loaded — userId:', userId, 'dogId:', dogId, 'familyMemberId:', familyMemberId);
     };
     init();
 
@@ -723,6 +746,10 @@ function CheckInScreen({ route }) {
       if (recordingRef.current) {
         recordingRef.current.stopAndUnloadAsync().catch(() => {});
         recordingRef.current = null;
+      }
+      if (mediaRecorderRef.current) {
+        try { mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop()); } catch {}
+        mediaRecorderRef.current = null;
       }
     };
   }, []);
@@ -749,21 +776,149 @@ function CheckInScreen({ route }) {
     }
   }, [recordingState]);
 
-  const startRecording = async () => {
+  const saveCheckIn = async (blob, mimeType, transcriptionText) => {
+    const userId = userIdRef.current;
+    const dogId = dogIdRef.current;
+    const familyMemberId = familyMemberIdRef.current;
+    if (!userId || !dogId || !familyMemberId) {
+      console.log('[CheckIn] missing IDs, skipping save:', { userId, dogId, familyMemberId });
+      return null;
+    }
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      recordingRef.current = recording;
-      recordingStartRef.current = Date.now();
-      setRecordingState('recording');
-      autoStopRef.current = setTimeout(() => stopAndTranscribe(), 60000);
+      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : 'webm';
+      const path = `${userId}/${dogId}/${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('checkins')
+        .upload(path, blob, { contentType: mimeType });
+      if (uploadError) {
+        console.log('[CheckIn] storage upload error:', uploadError);
+        return null;
+      }
+      const { data: urlData } = supabase.storage.from('checkins').getPublicUrl(path);
+      const audioUrl = urlData?.publicUrl;
+      console.log('[CheckIn] audio uploaded:', audioUrl);
+
+      const { data: checkInData, error: checkInError } = await supabase
+        .from('check_ins')
+        .insert({
+          dog_id: dogId,
+          family_member_id: familyMemberId,
+          check_in_type: 'morning',
+          audio_file_url: audioUrl,
+          whisper_raw_text: transcriptionText,
+          check_in_text: transcriptionText,
+          transcription_status: 'completed',
+          contributed_to_baseline: 'yes',
+        })
+        .select('check_in_id')
+        .single();
+      if (checkInError) {
+        console.log('[CheckIn] insert error:', checkInError);
+        return null;
+      }
+      console.log('[CheckIn] saved, check_in_id:', checkInData.check_in_id);
+      return checkInData.check_in_id;
     } catch (err) {
-      console.log('[Audio] startRecording error:', err);
+      console.log('[CheckIn] error:', err);
+      return null;
+    }
+  };
+
+  const saveResponse = async (checkInId, responseText) => {
+    const dogId = dogIdRef.current;
+    if (!checkInId || !dogId) return;
+    try {
+      const { error } = await supabase.from('responses').insert({
+        check_in_id: checkInId,
+        dog_id: dogId,
+        response_text: responseText,
+        response_type: 'reassurance',
+        response_status: 'delivered',
+        was_alert: false,
+      });
+      if (error) console.log('[Response] insert error:', error);
+      else console.log('[Response] saved');
+    } catch (err) {
+      console.log('[Response] error:', err);
+    }
+  };
+
+  const callClaude = async (transcriptionText, checkInId) => {
+    setIsClaudeLoading(true);
+    setClaudeResponse('');
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 256,
+          system: 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.',
+          messages: [{ role: 'user', content: transcriptionText }],
+        }),
+      });
+      const data = await response.json();
+      console.log('[Claude] result:', JSON.stringify(data));
+      if (data.content?.[0]?.text) {
+        const responseText = data.content[0].text;
+        setClaudeResponse(responseText);
+        saveResponse(checkInId, responseText);
+      }
+    } catch (err) {
+      console.log('[Claude] error:', err);
+    } finally {
+      setIsClaudeLoading(false);
+    }
+  };
+
+  const startRecording = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('[Audio] mic stream obtained, tracks:', stream.getAudioTracks().map(t => t.label));
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm';
+        const mediaRecorder = new MediaRecorder(stream, { mimeType });
+        mediaChunksRef.current = [];
+        mediaRecorder.ondataavailable = (e) => {
+          console.log('[Audio] ondataavailable fired, chunk size:', e.data.size, 'bytes');
+          if (e.data.size > 0) mediaChunksRef.current.push(e.data);
+        };
+        mediaRecorderRef.current = mediaRecorder;
+        console.log('[Audio] MediaRecorder state before start:', mediaRecorder.state);
+        mediaRecorder.start(100);
+        console.log('[Audio] MediaRecorder state after start:', mediaRecorder.state);
+        recordingStartRef.current = Date.now();
+        setRecordingState('recording');
+        autoStopRef.current = setTimeout(() => stopAndTranscribe(), 60000);
+      } catch (err) {
+        console.log('[Audio] startRecording error:', err);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          setPermissionDenied(true);
+        }
+      }
+    } else {
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        });
+        const { recording } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY
+        );
+        recordingRef.current = recording;
+        recordingStartRef.current = Date.now();
+        setRecordingState('recording');
+        autoStopRef.current = setTimeout(() => stopAndTranscribe(), 60000);
+      } catch (err) {
+        console.log('[Audio] startRecording error:', err);
+      }
     }
   };
 
@@ -772,59 +927,107 @@ function CheckInScreen({ route }) {
       clearTimeout(autoStopRef.current);
       autoStopRef.current = null;
     }
+
+    const durationSecs = ((Date.now() - (recordingStartRef.current ?? Date.now())) / 1000).toFixed(1);
+    console.log('[Audio] recording duration:', durationSecs, 'seconds');
+
+    if (parseFloat(durationSecs) < 2) {
+      setTranscription('Hold the mic button while speaking');
+      setRecordingState('idle');
+      return;
+    }
+
     setRecordingState('processing');
 
-    try {
-      const recording = recordingRef.current;
-      if (!recording) return;
+    if (Platform.OS === 'web') {
+      try {
+        const mediaRecorder = mediaRecorderRef.current;
+        if (!mediaRecorder) return;
 
-      await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      const uri = recording.getURI();
-      recordingRef.current = null;
-      console.log('[Audio] recording URI:', uri);
+        await new Promise((resolve) => {
+          mediaRecorder.onstop = resolve;
+          mediaRecorder.stop();
+          mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        });
 
-      if (!uri) { setRecordingState('idle'); return; }
+        const chunks = mediaChunksRef.current;
+        console.log('[Audio] total chunks collected:', chunks.length);
+        const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        console.log('[Audio] blob size (bytes):', blob.size, '— expected 50000+ for real voice, <1000 for silent/empty');
+        console.log('[Audio] blob MIME type:', blob.type);
+        console.log('[Audio] recording duration (seconds):', durationSecs);
 
-      const durationSecs = ((Date.now() - (recordingStartRef.current ?? Date.now())) / 1000).toFixed(1);
-      console.log('[Audio] recording duration:', durationSecs, 'seconds');
+        mediaRecorderRef.current = null;
+        mediaChunksRef.current = [];
 
-      if (parseFloat(durationSecs) < 2) {
-        setTranscription('Hold the mic button while speaking');
-        setRecordingState('idle');
-        return;
-      }
-
-      const formData = new FormData();
-      if (Platform.OS === 'web') {
-        // On web the URI is a blob URL — fetch it to get the real blob data
-        const blobResponse = await fetch(uri);
-        const blob = await blobResponse.blob();
-        const file = new File([blob], 'recording.m4a', { type: 'audio/m4a' });
+        const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'mp4' : 'webm';
+        const file = new File([blob], `recording.${ext}`, { type: blob.type });
+        const formData = new FormData();
         formData.append('file', file);
-      } else {
+        formData.append('model', 'whisper-1');
+        formData.append('language', 'en');
+
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}` },
+          body: formData,
+        });
+        const result = await response.json();
+        console.log('[Whisper] result:', JSON.stringify(result));
+        if (result.text) {
+          setTranscription(result.text);
+          const checkInId = await saveCheckIn(blob, blob.type, result.text);
+          callClaude(result.text, checkInId);
+        }
+      } catch (err) {
+        console.log('[Whisper] error:', err);
+      } finally {
+        setRecordingState('idle');
+      }
+    } else {
+      try {
+        const recording = recordingRef.current;
+        if (!recording) return;
+
+        await recording.stopAndUnloadAsync();
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+        const uri = recording.getURI();
+        recordingRef.current = null;
+        console.log('[Audio] recording URI:', uri);
+
+        if (!uri) { setRecordingState('idle'); return; }
+
+        console.log('[Audio] blob MIME type: audio/m4a (native)');
+        console.log('[Audio] recording duration (seconds):', durationSecs);
+
+        // Fetch blob for Supabase storage upload (runs in parallel with Whisper)
+        const blobPromise = fetch(uri).then(r => r.blob());
+
+        const formData = new FormData();
         formData.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' });
-      }
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'en');
+        formData.append('model', 'whisper-1');
+        formData.append('language', 'en');
 
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}`,
-        },
-        body: formData,
-      });
-      const result = await response.json();
-      console.log('[Whisper] result:', JSON.stringify(result));
-
-      if (result.text) {
-        setTranscription(result.text);
+        const [whisperResponse, nativeBlob] = await Promise.all([
+          fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}` },
+            body: formData,
+          }),
+          blobPromise,
+        ]);
+        const result = await whisperResponse.json();
+        console.log('[Whisper] result:', JSON.stringify(result));
+        if (result.text) {
+          setTranscription(result.text);
+          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text);
+          callClaude(result.text, checkInId);
+        }
+      } catch (err) {
+        console.log('[Whisper] error:', err);
+      } finally {
+        setRecordingState('idle');
       }
-    } catch (err) {
-      console.log('[Whisper] error:', err);
-    } finally {
-      setRecordingState('idle');
     }
   };
 
@@ -887,6 +1090,18 @@ function CheckInScreen({ route }) {
             {!!transcription && (
               <View style={checkIn.transcriptionCard}>
                 <Text style={checkIn.transcriptionText}>{transcription}</Text>
+              </View>
+            )}
+
+            {isClaudeLoading && (
+              <View style={checkIn.claudeCard}>
+                <Text style={checkIn.claudeThinking}>Know Better is thinking…</Text>
+              </View>
+            )}
+
+            {!!claudeResponse && !isClaudeLoading && (
+              <View style={checkIn.claudeCard}>
+                <Text style={checkIn.claudeText}>{claudeResponse}</Text>
               </View>
             )}
           </>
@@ -2023,5 +2238,24 @@ const checkIn = StyleSheet.create({
     fontSize: 16,
     color: '#222222',
     lineHeight: 24,
+  },
+  claudeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 12,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#D6EDE7',
+  },
+  claudeThinking: {
+    fontSize: 15,
+    color: '#7A9E95',
+    fontStyle: 'italic',
+  },
+  claudeText: {
+    fontSize: 16,
+    color: '#1A3C34',
+    lineHeight: 26,
   },
 });
