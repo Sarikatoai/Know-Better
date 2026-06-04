@@ -25,8 +25,8 @@ const Stack = createNativeStackNavigator();
 // On native (Expo Go on a real device) Linking.createURL resolves to localhost
 // which isn't reachable from the phone. Use the local network IP instead.
 const AUTH_REDIRECT_URL = Platform.OS === 'web'
-  ? Linking.createURL('auth/callback')
-  : 'exp://10.0.0.181:8081/--/auth/callback';
+  ? 'exp://localhost:8081'
+  : 'exp://10.0.0.181:8081';
 
 // ─── Mood data ───────────────────────────────────────────────────────────────
 
