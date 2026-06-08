@@ -22,11 +22,7 @@ import {
 
 const Stack = createNativeStackNavigator();
 
-// On native (Expo Go on a real device) Linking.createURL resolves to localhost
-// which isn't reachable from the phone. Use the local network IP instead.
-const AUTH_REDIRECT_URL = Platform.OS === 'web'
-  ? 'exp://localhost:8081'
-  : 'exp://10.0.0.181:8081';
+const AUTH_REDIRECT_URL = 'exp://w-kgbem-anonymous-8081.exp.direct';
 
 // ─── Mood data ───────────────────────────────────────────────────────────────
 
@@ -683,7 +679,7 @@ function CongratulationsScreen({ navigation, route }) {
 
 // ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
 
-function CheckInScreen({ route }) {
+function CheckInScreen({ navigation, route }) {
   const { userName: paramUserName, dogName: paramDogName } = route.params ?? {};
   const [userName, setUserName] = useState(paramUserName ?? '');
   const [dogName, setDogName] = useState(paramDogName ?? '');
@@ -776,7 +772,7 @@ function CheckInScreen({ route }) {
     }
   }, [recordingState]);
 
-  const saveCheckIn = async (blob, mimeType, transcriptionText) => {
+  const saveCheckIn = async (blob, mimeType, transcriptionText, inputClassification = 'irrelevant') => {
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
@@ -808,7 +804,8 @@ function CheckInScreen({ route }) {
           whisper_raw_text: transcriptionText,
           check_in_text: transcriptionText,
           transcription_status: 'completed',
-          contributed_to_baseline: 'yes',
+          input_classification: inputClassification,
+          contributed_to_baseline: inputClassification === 'normal' || inputClassification === 'concerning' ? 'yes' : inputClassification === 'health_event' ? 'partial' : 'no',
         })
         .select('check_in_id')
         .single();
@@ -873,6 +870,40 @@ function CheckInScreen({ route }) {
       console.log('[Claude] error:', err);
     } finally {
       setIsClaudeLoading(false);
+    }
+  };
+
+  const classifyCheckIn = async (transcriptionText) => {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 16,
+          system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify the text into exactly one of these four categories:
+NORMAL — the owner describes routine healthy dog behavior. Examples: dog ate their meal, played outside, did their business, drank water, had good energy, seemed happy.
+CONCERNING — the owner mentions something unusual, different from normal, or potentially worrying. Examples: dog skipped a meal, did not drink water, had low energy, did not poop or pee all day, was limping, seemed off.
+HEALTH_EVENT — the owner mentions a significant medical event. Examples: vet visit, surgery, new medication, hospitalization, diagnosis.
+IRRELEVANT — the text contains no useful information about the dog's health or daily routine. Examples: accidental recording, conversation not about the dog, nonsensical content.
+Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
+          messages: [{ role: 'user', content: transcriptionText }],
+        }),
+      });
+      const data = await response.json();
+      const raw = data.content?.[0]?.text?.trim().toUpperCase();
+      const valid = ['NORMAL', 'CONCERNING', 'HEALTH_EVENT', 'IRRELEVANT'];
+      const classification = valid.includes(raw) ? raw.toLowerCase() : 'irrelevant';
+      console.log('[Classify] result:', classification);
+      return classification;
+    } catch (err) {
+      console.log('[Classify] error:', err);
+      return 'irrelevant';
     }
   };
 
@@ -976,7 +1007,8 @@ function CheckInScreen({ route }) {
         console.log('[Whisper] result:', JSON.stringify(result));
         if (result.text) {
           setTranscription(result.text);
-          const checkInId = await saveCheckIn(blob, blob.type, result.text);
+          const classification = await classifyCheckIn(result.text);
+          const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
           callClaude(result.text, checkInId);
         }
       } catch (err) {
@@ -1020,7 +1052,8 @@ function CheckInScreen({ route }) {
         console.log('[Whisper] result:', JSON.stringify(result));
         if (result.text) {
           setTranscription(result.text);
-          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text);
+          const classification = await classifyCheckIn(result.text);
+          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
           callClaude(result.text, checkInId);
         }
       } catch (err) {
@@ -1034,6 +1067,11 @@ function CheckInScreen({ route }) {
   const handleMicPress = () => {
     if (recordingState === 'idle') startRecording();
     else if (recordingState === 'recording') stopAndTranscribe();
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
   };
 
   const isRecording = recordingState === 'recording';
@@ -1107,6 +1145,10 @@ function CheckInScreen({ route }) {
           </>
         )}
       </View>
+
+      <TouchableOpacity onPress={handleSignOut} activeOpacity={0.6}>
+        <Text style={checkIn.signOutLink}>Sign out</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -1305,7 +1347,7 @@ export default function App() {
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{
           headerTitle: '',
-          headerTransparent: true,
+          headerStyle: { backgroundColor: '#FFFFFF' },
           headerTintColor: '#0F6E56',
           headerBackTitle: '',
           headerShadowVisible: false,
@@ -1440,7 +1482,7 @@ const dogName = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 28,
     justifyContent: 'flex-start',
-    paddingTop: 60,
+    paddingTop: 24,
   },
   inner: {
     gap: 24,
@@ -1491,7 +1533,7 @@ const dogAge = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 28,
-    paddingTop: 60,
+    paddingTop: 24,
     gap: 24,
   },
   header: {
@@ -1644,7 +1686,7 @@ const account = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 28,
-    paddingTop: 60,
+    paddingTop: 24,
     justifyContent: 'space-between',
   },
   inner: {
@@ -1714,7 +1756,7 @@ const signIn = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 28,
-    paddingTop: 60,
+    paddingTop: 24,
     justifyContent: 'space-between',
   },
   inner: {
@@ -1775,7 +1817,7 @@ const dogMood = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 28,
-    paddingTop: 60,
+    paddingTop: 24,
     justifyContent: 'space-between',
   },
   inner: {
@@ -1847,7 +1889,7 @@ const dogHealth = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 28,
-    paddingTop: 60,
+    paddingTop: 24,
     justifyContent: 'space-between',
   },
   inner: {
@@ -1935,7 +1977,7 @@ const dogBreed = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 28,
-    paddingTop: 60,
+    paddingTop: 24,
     gap: 24,
   },
   header: {
@@ -2257,5 +2299,11 @@ const checkIn = StyleSheet.create({
     fontSize: 16,
     color: '#1A3C34',
     lineHeight: 26,
+  },
+  signOutLink: {
+    fontSize: 12,
+    color: '#CCCCCC',
+    textAlign: 'center',
+    paddingVertical: 4,
   },
 });
