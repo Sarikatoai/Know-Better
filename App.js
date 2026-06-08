@@ -494,6 +494,7 @@ function AccountScreen({ navigation, route }) {
       ['onboarding_notes', dogData.notes ?? ''],
       ['onboarding_mood', dogData.mood ?? ''],
     ]);
+    console.log('[OTP] emailRedirectTo:', AUTH_REDIRECT_URL);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
@@ -501,6 +502,7 @@ function AccountScreen({ navigation, route }) {
         emailRedirectTo: AUTH_REDIRECT_URL,
       },
     });
+    if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
     setIsLoading(false);
     if (authError) {
       setError('Something went wrong. Please try again.');
@@ -578,6 +580,7 @@ function SignInScreen({ navigation }) {
   const handleSendLink = async () => {
     setIsLoading(true);
     setError('');
+    console.log('[OTP] emailRedirectTo:', AUTH_REDIRECT_URL);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
@@ -585,6 +588,7 @@ function SignInScreen({ navigation }) {
         emailRedirectTo: AUTH_REDIRECT_URL,
       },
     });
+    if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
     setIsLoading(false);
     if (authError) {
       setError('Something went wrong. Please try again.');
