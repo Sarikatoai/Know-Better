@@ -1246,13 +1246,26 @@ export default function App() {
   useEffect(() => {
     const handleDeepLink = async (url) => {
       if (!url) return;
-      const fragment = url.split('#')[1];
-      if (!fragment) return;
+      console.log('[DeepLink] URL received:', url);
+
+      // Supabase puts tokens in the hash fragment on web, query string on some native flows
+      const hashPart = url.split('#')[1];
+      const queryPart = url.split('?')[1]?.split('#')[0];
+      const fragment = hashPart || queryPart;
+      if (!fragment) {
+        console.log('[DeepLink] no token fragment found in URL');
+        return;
+      }
+
       const params = new URLSearchParams(fragment);
       const access_token = params.get('access_token');
       const refresh_token = params.get('refresh_token');
+      console.log('[DeepLink] access_token:', access_token ? 'present' : 'missing', '| refresh_token:', refresh_token ? 'present' : 'missing');
+
       if (access_token && refresh_token) {
-        await supabase.auth.setSession({ access_token, refresh_token });
+        const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+        if (error) console.log('[DeepLink] setSession error:', error.message);
+        else console.log('[DeepLink] setSession success — SIGNED_IN will handle navigation');
       }
     };
 
