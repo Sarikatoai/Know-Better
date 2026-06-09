@@ -820,7 +820,6 @@ function CheckInScreen({ navigation, route }) {
         return null;
       }
       console.log('[CheckIn] saved, check_in_id:', checkInData.check_in_id);
-      calculateBaseline(dogId);
       return checkInData.check_in_id;
     } catch (err) {
       console.log('[CheckIn] error:', err);
@@ -894,12 +893,65 @@ function CheckInScreen({ navigation, route }) {
     }
   };
 
-  const callClaude = async (transcriptionText, checkInId, classification) => {
+  const detectDeviation = async (dogId, checkInId) => {
+    try {
+      const { data, error } = await supabase
+        .from('baselines')
+        .select('baseline_data')
+        .eq('dog_id', dogId)
+        .single();
+      if (error) { console.log('[Deviation] baseline read error:', error); return null; }
+
+      const b = data?.baseline_data;
+      if (!b?.baseline_active) {
+        console.log('[Deviation] skipped — baseline not active yet (total_checkins:', b?.total_checkins, ')');
+        return null;
+      }
+
+      const ccd = b.consecutive_concerning_days ?? 0;
+      let alertLevel = null;
+      if (ccd >= 5) alertLevel = 3;
+      else if (ccd >= 3) alertLevel = 2;
+      else if (ccd >= 2) alertLevel = 1;
+
+      console.log('[Deviation] consecutive_concerning_days:', ccd, '→ alertLevel:', alertLevel);
+
+      if (alertLevel !== null) {
+        const alert_trigger_reason = `${ccd} consecutive concerning check-in${ccd !== 1 ? 's' : ''} detected in the last 7 days.`;
+        const { error: alertError } = await supabase.from('alerts').insert({
+          dog_id: dogId,
+          check_in_id: checkInId,
+          alert_level: `level_${alertLevel}`,
+          alert_trigger_reason,
+          baseline_snapshot: b,
+        });
+        if (alertError) console.log('[Deviation] alert insert error:', alertError);
+        else console.log('[Deviation] alert saved — level:', alertLevel, '|', alert_trigger_reason);
+      }
+
+      return alertLevel;
+    } catch (err) {
+      console.log('[Deviation] error:', err);
+      return null;
+    }
+  };
+
+  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null) => {
     setIsClaudeLoading(true);
     setClaudeResponse('');
-    const systemPrompt = classification === 'irrelevant'
-      ? `You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how ${dogName || 'their dog'} is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life.`
-      : 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
+    const name = dogName || 'your dog';
+    let systemPrompt;
+    if (alertLevel === 3) {
+      systemPrompt = `You are Know Better, a caring companion for dog owners. ${name} has been having off days consistently. Respond in a direct and calm tone. Acknowledge today's check-in briefly, then note that this pattern has continued and suggest the owner contact their vet today. Keep it to 2-3 sentences. Do not diagnose. Do not alarm.`;
+    } else if (alertLevel === 2) {
+      systemPrompt = `You are Know Better, a caring companion for dog owners. ${name} has had several off days in a row. Respond in a gentle but clear tone. Acknowledge today's check-in briefly, then note the pattern is worth mentioning to their vet at the next visit. Keep it to 2-3 sentences. Do not diagnose. Do not alarm.`;
+    } else if (alertLevel === 1) {
+      systemPrompt = `You are Know Better, a caring companion for dog owners. ${name} has had a couple of off days in a row. Respond in a calm, observational tone. Acknowledge today's check-in briefly, then note you have noticed the pattern and will keep watching closely. Keep it to 2-3 sentences. Do not diagnose. Do not alarm.`;
+    } else if (classification === 'irrelevant') {
+      systemPrompt = `You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how ${name} is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life.`;
+    } else {
+      systemPrompt = 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
+    }
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -1066,7 +1118,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
-          callClaude(result.text, checkInId, classification);
+          await calculateBaseline(dogIdRef.current);
+          const alertLevel = await detectDeviation(dogIdRef.current, checkInId);
+          callClaude(result.text, checkInId, classification, alertLevel);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
@@ -1111,7 +1165,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
-          callClaude(result.text, checkInId, classification);
+          await calculateBaseline(dogIdRef.current);
+          const alertLevel = await detectDeviation(dogIdRef.current, checkInId);
+          callClaude(result.text, checkInId, classification, alertLevel);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
