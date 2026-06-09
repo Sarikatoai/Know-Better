@@ -905,7 +905,7 @@ function CheckInScreen({ navigation, route }) {
       const b = data?.baseline_data;
       if (!b?.baseline_active) {
         console.log('[Deviation] skipped — baseline not active yet (total_checkins:', b?.total_checkins, ')');
-        return null;
+        return { alertLevel: null, consecutiveDays: 0 };
       }
 
       const ccd = b.consecutive_concerning_days ?? 0;
@@ -929,24 +929,24 @@ function CheckInScreen({ navigation, route }) {
         else console.log('[Deviation] alert saved — level:', alertLevel, '|', alert_trigger_reason);
       }
 
-      return alertLevel;
+      return { alertLevel, consecutiveDays: ccd };
     } catch (err) {
       console.log('[Deviation] error:', err);
-      return null;
+      return { alertLevel: null, consecutiveDays: 0 };
     }
   };
 
-  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null) => {
+  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0) => {
     setIsClaudeLoading(true);
     setClaudeResponse('');
     const name = dogName || 'your dog';
     let systemPrompt;
     if (alertLevel === 3) {
-      systemPrompt = `You are Know Better, a caring companion for dog owners. ${name} has been having off days consistently. Respond in a direct and calm tone. Acknowledge today's check-in briefly, then note that this pattern has continued and suggest the owner contact their vet today. Keep it to 2-3 sentences. Do not diagnose. Do not alarm.`;
+      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond directly and calmly. Acknowledge what the owner shared. Clearly recommend they contact their vet today. Do not diagnose. Do not alarm. 2 sentences maximum.`;
     } else if (alertLevel === 2) {
-      systemPrompt = `You are Know Better, a caring companion for dog owners. ${name} has had several off days in a row. Respond in a gentle but clear tone. Acknowledge today's check-in briefly, then note the pattern is worth mentioning to their vet at the next visit. Keep it to 2-3 sentences. Do not diagnose. Do not alarm.`;
+      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond gently but clearly. Acknowledge what the owner shared. Recommend they mention this pattern to their vet soon — not urgently but within the next day or two. Do not diagnose. Do not alarm. 2 sentences maximum.`;
     } else if (alertLevel === 1) {
-      systemPrompt = `You are Know Better, a caring companion for dog owners. ${name} has had a couple of off days in a row. Respond in a calm, observational tone. Acknowledge today's check-in briefly, then note you have noticed the pattern and will keep watching closely. Keep it to 2-3 sentences. Do not diagnose. Do not alarm.`;
+      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond calmly and warmly. Acknowledge specifically what the owner shared today. Note that you have noticed this pattern over the past few days and will keep watching. Do not diagnose. Do not alarm. 2 sentences maximum.`;
     } else if (classification === 'irrelevant') {
       systemPrompt = `You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how ${name} is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life.`;
     } else {
@@ -1119,8 +1119,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
           await calculateBaseline(dogIdRef.current);
-          const alertLevel = await detectDeviation(dogIdRef.current, checkInId);
-          callClaude(result.text, checkInId, classification, alertLevel);
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
@@ -1166,8 +1166,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
           await calculateBaseline(dogIdRef.current);
-          const alertLevel = await detectDeviation(dogIdRef.current, checkInId);
-          callClaude(result.text, checkInId, classification, alertLevel);
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
