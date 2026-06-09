@@ -846,9 +846,12 @@ function CheckInScreen({ navigation, route }) {
     }
   };
 
-  const callClaude = async (transcriptionText, checkInId) => {
+  const callClaude = async (transcriptionText, checkInId, classification) => {
     setIsClaudeLoading(true);
     setClaudeResponse('');
+    const systemPrompt = classification === 'irrelevant'
+      ? "You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how their dog is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life."
+      : 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -861,7 +864,7 @@ function CheckInScreen({ navigation, route }) {
         body: JSON.stringify({
           model: 'claude-sonnet-4-5',
           max_tokens: 256,
-          system: 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.',
+          system: systemPrompt,
           messages: [{ role: 'user', content: transcriptionText }],
         }),
       });
@@ -1015,7 +1018,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
-          callClaude(result.text, checkInId);
+          callClaude(result.text, checkInId, classification);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
@@ -1060,7 +1063,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
-          callClaude(result.text, checkInId);
+          callClaude(result.text, checkInId, classification);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
