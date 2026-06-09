@@ -22,7 +22,9 @@ import {
 
 const Stack = createNativeStackNavigator();
 
-const AUTH_REDIRECT_URL = 'exp://w-kgbem-anonymous-8081.exp.direct';
+const AUTH_REDIRECT_URL = Platform.OS === 'web'
+  ? 'http://localhost:8081'
+  : 'exp://w-kgbem-anonymous-8081.exp.direct';
 
 // ─── Mood data ───────────────────────────────────────────────────────────────
 

@@ -17,13 +17,27 @@
 
 ## Current Build Status
 
-- All 10 onboarding screens built and working
-- Supabase Auth magic link working
+MVP Phase 1 — COMPLETE
+
+Everything working end to end on real phone:
+- All 10 onboarding screens
+- Supabase Auth magic link
 - Onboarding data saves to users, dogs, family_members tables
-- Whisper transcription working
-- Claude API response wired up (claude-sonnet-4-20250514)
-- Audio blob uploads to Supabase storage bucket 'checkins'
-- check_ins and responses tables wired up with RLS policies
+- Returning user goes straight to check-in
+- Voice recording via MediaRecorder (web) and expo-av (mobile)
+- Whisper API transcription working
+- Claude API response generating (model: claude-sonnet-4-5)
+- Audio saved to Supabase storage bucket: checkins
+- Check-in saved to check_ins table
+- Response saved to responses table
+
+## What is being built next
+
+MVP Phase 2 — Level 1 alert logic
+- Input classification — four buckets via Claude
+- Baseline calculation — nightly recalculation
+- Single signal flag detection
+- Level 1 alert response generation
 
 ## Database Tables
 
