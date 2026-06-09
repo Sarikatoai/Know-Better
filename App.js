@@ -820,6 +820,7 @@ function CheckInScreen({ navigation, route }) {
         return null;
       }
       console.log('[CheckIn] saved, check_in_id:', checkInData.check_in_id);
+      calculateBaseline(dogId);
       return checkInData.check_in_id;
     } catch (err) {
       console.log('[CheckIn] error:', err);
@@ -843,6 +844,53 @@ function CheckInScreen({ navigation, route }) {
       else console.log('[Response] saved');
     } catch (err) {
       console.log('[Response] error:', err);
+    }
+  };
+
+  const calculateBaseline = async (dogId) => {
+    try {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('check_ins')
+        .select('input_classification, created_at')
+        .eq('dog_id', dogId)
+        .in('contributed_to_baseline', ['yes', 'partial'])
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
+      if (error) { console.log('[Baseline] query error:', error); return; }
+
+      const total_checkins = data.length;
+      const normal_count = data.filter(r => r.input_classification === 'normal').length;
+      const concerning_count = data.filter(r => r.input_classification === 'concerning').length;
+      const normal_rate = total_checkins > 0 ? normal_count / total_checkins : 0;
+      const concerning_rate = total_checkins > 0 ? concerning_count / total_checkins : 0;
+      const last_checkin_classification = data[0]?.input_classification ?? null;
+      const baseline_active = total_checkins >= 3;
+
+      let consecutive_concerning_days = 0;
+      for (const row of data) {
+        if (row.input_classification === 'concerning') consecutive_concerning_days++;
+        else break;
+      }
+
+      const baseline_data = {
+        total_checkins,
+        normal_count,
+        concerning_count,
+        normal_rate,
+        concerning_rate,
+        consecutive_concerning_days,
+        last_checkin_classification,
+        baseline_active,
+      };
+
+      const { error: upsertError } = await supabase
+        .from('baselines')
+        .upsert({ dog_id: dogId, baseline_data }, { onConflict: 'dog_id' });
+      if (upsertError) console.log('[Baseline] upsert error:', upsertError);
+      else console.log('[Baseline] calculated and saved:', JSON.stringify(baseline_data));
+    } catch (err) {
+      console.log('[Baseline] error:', err);
     }
   };
 
