@@ -982,6 +982,49 @@ function CheckInScreen({ navigation, route }) {
     }
   };
 
+  const extractSignals = async (transcriptionText, checkInId, dogId) => {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 256,
+          system: `You are analyzing a dog owner's check-in about their dog. Extract the state of each behavioral dimension mentioned. Return a JSON object only — no other text. Use these exact keys and values:
+appetite: normal, low, skipped, or null (if not mentioned)
+energy: normal, low, high, or null
+elimination: normal, irregular, absent, or null
+water_intake: normal, low, absent, or null
+demeanor: normal, low, or null
+vomiting: none, once, multiple, or null
+Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", "water_intake": "null", "demeanor": "low", "vomiting": "none"}`,
+          messages: [{ role: 'user', content: transcriptionText }],
+        }),
+      });
+      const data = await response.json();
+      const rawText = data.content?.[0]?.text ?? '';
+      const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+      const signals = JSON.parse(cleaned);
+      console.log('[Signals] extracted:', JSON.stringify(signals));
+
+      const { error } = await supabase.from('signals').insert({
+        check_in_id: checkInId,
+        dog_id: dogId,
+        ...signals,
+        raw_signals_response: rawText,
+      });
+      if (error) console.log('[Signals] insert error:', error);
+      else console.log('[Signals] saved');
+    } catch (err) {
+      console.log('[Signals] error:', err);
+    }
+  };
+
   const classifyCheckIn = async (transcriptionText) => {
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1118,6 +1161,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
+          if (classification === 'concerning' || classification === 'health_event') {
+            extractSignals(result.text, checkInId, dogIdRef.current);
+          }
           await calculateBaseline(dogIdRef.current);
           const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
@@ -1165,6 +1211,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
+          if (classification === 'concerning' || classification === 'health_event') {
+            extractSignals(result.text, checkInId, dogIdRef.current);
+          }
           await calculateBaseline(dogIdRef.current);
           const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
