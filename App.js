@@ -474,6 +474,20 @@ function DogMoodScreen({ navigation, route }) {
 
 const isValidEmail = (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
 
+const SIGNAL_DIMS = ['appetite', 'energy', 'water_intake', 'demeanor', 'vomiting', 'elimination'];
+
+const isLowSignal = (dim, values) => {
+  switch (dim) {
+    case 'appetite':    return values.some(v => v === 'low' || v === 'skipped');
+    case 'energy':      return values.some(v => v === 'low');
+    case 'water_intake':return values.some(v => v === 'low' || v === 'absent');
+    case 'demeanor':    return values.some(v => v === 'low');
+    case 'vomiting':    return values.some(v => v === 'once' || v === 'multiple');
+    case 'elimination': return values.some(v => v === 'irregular' || v === 'absent');
+    default: return false;
+  }
+};
+
 function AccountScreen({ navigation, route }) {
   const dogData = route.params ?? {};
   const [userName, setUserName] = useState('');
@@ -496,20 +510,16 @@ function AccountScreen({ navigation, route }) {
       ['onboarding_notes', dogData.notes ?? ''],
       ['onboarding_mood', dogData.mood ?? ''],
     ]);
-    console.log('[OTP] emailRedirectTo:', AUTH_REDIRECT_URL);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: AUTH_REDIRECT_URL,
-      },
+      options: { shouldCreateUser: true },
     });
     if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
     setIsLoading(false);
     if (authError) {
       setError('Something went wrong. Please try again.');
     } else {
-      navigation.navigate('MagicLink', { email: email.trim(), userName, dogName: dogData.dogName });
+      navigation.navigate('OtpCode', { email: email.trim(), isNewUser: true });
     }
   };
 
@@ -542,7 +552,7 @@ function AccountScreen({ navigation, route }) {
             <Text style={account.label}>Email address</Text>
             <TextInput
               style={account.input}
-              placeholder="I'll send your sign-in link here"
+              placeholder="I'll send your code here"
               placeholderTextColor="#AAAAAA"
               value={email}
               onChangeText={(val) => { setEmail(val); setError(''); }}
@@ -563,7 +573,7 @@ function AccountScreen({ navigation, route }) {
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
         >
-          <Text style={account.buttonText}>{isLoading ? 'Sending…' : 'Send my link'}</Text>
+          <Text style={account.buttonText}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -582,20 +592,16 @@ function SignInScreen({ navigation }) {
   const handleSendLink = async () => {
     setIsLoading(true);
     setError('');
-    console.log('[OTP] emailRedirectTo:', AUTH_REDIRECT_URL);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: AUTH_REDIRECT_URL,
-      },
+      options: { shouldCreateUser: false },
     });
     if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
     setIsLoading(false);
     if (authError) {
       setError('Something went wrong. Please try again.');
     } else {
-      navigation.navigate('MagicLink', { email: email.trim() });
+      navigation.navigate('OtpCode', { email: email.trim(), isNewUser: false });
     }
   };
 
@@ -607,7 +613,7 @@ function SignInScreen({ navigation }) {
       <View style={signIn.inner}>
         <View style={signIn.intro}>
           <Text style={signIn.headline}>Welcome back.</Text>
-          <Text style={signIn.subtext}>I'll send you a sign-in link.</Text>
+          <Text style={signIn.subtext}>I'll send you an 8-digit code.</Text>
         </View>
 
         <View style={signIn.form}>
@@ -635,7 +641,7 @@ function SignInScreen({ navigation }) {
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
         >
-          <Text style={signIn.buttonText}>{isLoading ? 'Sending…' : 'Send my link'}</Text>
+          <Text style={signIn.buttonText}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -682,83 +688,6 @@ function CongratulationsScreen({ navigation, route }) {
     </View>
   );
 }
-
-// ─── Pattern engine: daily summaries ────────────────────────────────────────
-
-// Worst-state ranking per signal — higher rank wins when merging a day's check-ins.
-const SIGNAL_SEVERITY = {
-  appetite: { normal: 0, low: 1, skipped: 2 },
-  energy: { normal: 0, high: 1, low: 2 },
-  elimination: { normal: 0, irregular: 1, absent: 2 },
-  water_intake: { normal: 0, low: 1, absent: 2 },
-  demeanor: { normal: 0, low: 1 },
-  vomiting: { none: 0, once: 1, multiple: 2 },
-};
-
-const EMPTY_SIGNALS = { appetite: null, energy: null, elimination: null, water_intake: null, demeanor: null, vomiting: null };
-
-const formatDateUTC = (d) => d.toISOString().slice(0, 10);
-
-const getLastNDates = (n) => {
-  const dates = [];
-  for (let i = 0; i < n; i++) {
-    dates.push(formatDateUTC(new Date(Date.now() - i * 24 * 60 * 60 * 1000)));
-  }
-  return dates; // most recent first — index 0 is today
-};
-
-const getDailySummary = async (dogId, date) => {
-  try {
-    const startOfDay = `${date}T00:00:00.000Z`;
-    const endOfDay = `${date}T23:59:59.999Z`;
-
-    const { data: checkIns, error: checkInsError } = await supabase
-      .from('check_ins')
-      .select('check_in_id, input_classification')
-      .eq('dog_id', dogId)
-      .gte('created_at', startOfDay)
-      .lte('created_at', endOfDay);
-    if (checkInsError) {
-      console.log('[DailySummary] check_ins query error:', checkInsError);
-      return { date, hasAnyCheckin: false, classification: 'normal', signals: { ...EMPTY_SIGNALS }, checkinCount: 0 };
-    }
-    if (checkIns.length === 0) {
-      return { date, hasAnyCheckin: false, classification: 'normal', signals: { ...EMPTY_SIGNALS }, checkinCount: 0 };
-    }
-
-    let classification = 'normal';
-    if (checkIns.some(c => c.input_classification === 'health_event')) classification = 'health_event';
-    else if (checkIns.some(c => c.input_classification === 'concerning')) classification = 'concerning';
-
-    const checkInIds = checkIns.map(c => c.check_in_id);
-    const { data: signalRows, error: signalsError } = await supabase
-      .from('signals')
-      .select('appetite, energy, elimination, water_intake, demeanor, vomiting')
-      .in('check_in_id', checkInIds);
-    if (signalsError) console.log('[DailySummary] signals query error:', signalsError);
-
-    const signals = { ...EMPTY_SIGNALS };
-    for (const key of Object.keys(SIGNAL_SEVERITY)) {
-      let worst = null;
-      let worstRank = -1;
-      for (const row of signalRows ?? []) {
-        const val = row[key];
-        if (val === null || val === undefined || val === 'null') continue;
-        const rank = SIGNAL_SEVERITY[key][val] ?? 0;
-        if (rank > worstRank) {
-          worstRank = rank;
-          worst = val;
-        }
-      }
-      signals[key] = worst;
-    }
-
-    return { date, hasAnyCheckin: true, classification, signals, checkinCount: checkIns.length };
-  } catch (err) {
-    console.log('[DailySummary] error:', err);
-    return { date, hasAnyCheckin: false, classification: 'normal', signals: { ...EMPTY_SIGNALS }, checkinCount: 0 };
-  }
-};
 
 // ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
 
@@ -855,10 +784,11 @@ function CheckInScreen({ navigation, route }) {
     }
   }, [recordingState]);
 
-  const saveCheckIn = async (blob, mimeType, transcriptionText, inputClassification = 'irrelevant') => {
+  const saveCheckIn = async (blob, mimeType, transcriptionText, inputClassification = 'irrelevant', treatmentActive = false) => {
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
+    console.log('[CheckIn] saveCheckIn called — dog_id:', dogId, '| treatmentActive:', treatmentActive, '| classification:', inputClassification);
     if (!userId || !dogId || !familyMemberId) {
       console.log('[CheckIn] missing IDs, skipping save:', { userId, dogId, familyMemberId });
       return null;
@@ -888,7 +818,7 @@ function CheckInScreen({ navigation, route }) {
           check_in_text: transcriptionText,
           transcription_status: 'completed',
           input_classification: inputClassification,
-          contributed_to_baseline: inputClassification === 'normal' || inputClassification === 'concerning' ? 'yes' : inputClassification === 'health_event' ? 'partial' : 'no',
+          contributed_to_baseline: inputClassification === 'health_event' ? 'partial' : (inputClassification === 'normal' || inputClassification === 'concerning') ? (treatmentActive ? 'partial' : 'yes') : 'no',
         })
         .select('check_in_id')
         .single();
@@ -923,25 +853,205 @@ function CheckInScreen({ navigation, route }) {
     }
   };
 
+  const getActiveTreatment = async (dogId) => {
+    try {
+      console.log('[HealthEvent] getActiveTreatment — querying dog_id:', dogId);
+      const { data, error } = await supabase
+        .from('health_events')
+        .select('health_event_id, treatment_active')
+        .eq('dog_id', dogId)
+        .eq('treatment_active', true)
+        .limit(1);
+      console.log('[HealthEvent] getActiveTreatment — raw response: data:', JSON.stringify(data), '| error:', JSON.stringify(error));
+      if (error) { console.log('[HealthEvent] getActiveTreatment error:', error); return false; }
+      const result = !!(data && data.length > 0);
+      console.log('[HealthEvent] getActiveTreatment — returning:', result);
+      return result;
+    } catch (err) {
+      console.log('[HealthEvent] getActiveTreatment error:', err);
+      return false;
+    }
+  };
+
+  const extractHealthEvent = async (transcriptionText, checkInId, dogId, familyMemberId) => {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 256,
+          system: `You are analyzing a dog owner's check-in that mentions a significant medical event. Extract the following and return as JSON only:
+{ "event_title": "brief title of the event", "event_type": "critical, medium, or low", "event_description": "what happened in plain language", "treatment_active": true }
+event_type guide: critical = surgery, hospitalization, serious diagnosis. medium = vet visit, new medication, minor procedure. low = routine checkup, vaccination.`,
+          messages: [{ role: 'user', content: transcriptionText }],
+        }),
+      });
+      const data = await response.json();
+      const rawText = data.content?.[0]?.text ?? '';
+      const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+      const extracted = JSON.parse(cleaned);
+      console.log('[HealthEvent] extracted:', JSON.stringify(extracted));
+
+      const today = new Date().toISOString().split('T')[0];
+      const { error } = await supabase.from('health_events').insert({
+        dog_id: dogId,
+        family_member_id: familyMemberId,
+        event_title: extracted.event_title,
+        event_description: extracted.event_description,
+        event_type: extracted.event_type,
+        treatment_active: true,
+        event_date: today,
+        pattern_engine_context: { reason: 'health event detected', classification: 'health_event' },
+      });
+      if (error) console.log('[HealthEvent] insert error:', error);
+      else console.log('[HealthEvent] saved:', extracted.event_title);
+    } catch (err) {
+      console.log('[HealthEvent] error:', err);
+    }
+  };
+
+  const checkTreatmentWindowClose = async (dogId) => {
+    try {
+      const { data: activeEvents } = await supabase
+        .from('health_events')
+        .select('health_event_id')
+        .eq('dog_id', dogId)
+        .eq('treatment_active', true)
+        .limit(1);
+      if (!activeEvents || activeEvents.length === 0) return;
+
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: recent } = await supabase
+        .from('check_ins')
+        .select('input_classification, created_at')
+        .eq('dog_id', dogId)
+        .in('contributed_to_baseline', ['yes', 'partial'])
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
+      if (!recent || recent.length === 0) return;
+
+      const dayMap = {};
+      for (const row of recent) {
+        const day = row.created_at.split('T')[0];
+        if (!dayMap[day]) dayMap[day] = [];
+        dayMap[day].push(row);
+      }
+      const days = Object.keys(dayMap).sort().reverse();
+      if (days.length < 2) return;
+
+      const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning');
+      if (isDayConcerning(dayMap[days[0]]) || isDayConcerning(dayMap[days[1]])) return;
+
+      const today = new Date().toISOString().split('T')[0];
+      const { error } = await supabase
+        .from('health_events')
+        .update({ treatment_active: false, event_end_date: today })
+        .eq('dog_id', dogId)
+        .eq('treatment_active', true);
+      if (error) console.log('[HealthEvent] close window error:', error);
+      else console.log('[HealthEvent] two consecutive normal days — closing treatment window');
+    } catch (err) {
+      console.log('[HealthEvent] checkTreatmentWindowClose error:', err);
+    }
+  };
+
+  const getDailySummary = async (dogId) => {
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data, error } = await supabase
+        .from('signals')
+        .select('appetite, energy, water_intake, demeanor, vomiting, elimination')
+        .eq('dog_id', dogId)
+        .gte('created_at', todayStart.toISOString());
+      if (error) { console.log('[DailySummary] query error:', error); return { lowSignals: [], combinationFlag: false, lowSignalCount: 0 }; }
+      if (!data || data.length === 0) return { lowSignals: [], combinationFlag: false, lowSignalCount: 0 };
+
+      const lowSignals = SIGNAL_DIMS.filter(dim => {
+        const values = data.map(r => r[dim]).filter(v => v != null && v !== 'null');
+        return isLowSignal(dim, values);
+      });
+      const combinationFlag = lowSignals.length >= 2;
+      console.log('[Combination] signals low today:', lowSignals, '— combination_flag:', combinationFlag);
+      return { lowSignals, combinationFlag, lowSignalCount: lowSignals.length };
+    } catch (err) {
+      console.log('[DailySummary] error:', err);
+      return { lowSignals: [], combinationFlag: false, lowSignalCount: 0 };
+    }
+  };
+
   const calculateBaseline = async (dogId) => {
     try {
-      const dailySummaries = [];
-      for (const date of getLastNDates(7)) {
-        dailySummaries.push(await getDailySummary(dogId, date));
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('check_ins')
+        .select('input_classification, created_at')
+        .eq('dog_id', dogId)
+        .in('contributed_to_baseline', ['yes', 'partial'])
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
+      if (error) { console.log('[Baseline] query error:', error); return; }
+
+      // Group check-ins by calendar day
+      const checkInsByDay = {};
+      for (const row of data) {
+        const day = row.created_at.split('T')[0];
+        if (!checkInsByDay[day]) checkInsByDay[day] = [];
+        checkInsByDay[day].push(row);
       }
 
-      const activeDays = dailySummaries.filter(d => d.hasAnyCheckin);
-      const total_days = activeDays.length;
-      const normal_days = activeDays.filter(d => d.classification === 'normal').length;
-      const concerning_days = activeDays.filter(d => d.classification === 'concerning').length;
+      // Days sorted newest first
+      const sortedDays = Object.keys(checkInsByDay).sort().reverse();
+      const total_days = sortedDays.length;
+
+      // A day is concerning if any check-in that day was concerning
+      const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning');
+
+      const normal_days = sortedDays.filter(day => !isDayConcerning(checkInsByDay[day])).length;
+      const concerning_days = sortedDays.filter(day => isDayConcerning(checkInsByDay[day])).length;
       const normal_rate = total_days > 0 ? normal_days / total_days : 0;
       const concerning_rate = total_days > 0 ? concerning_days / total_days : 0;
-      const last_day_classification = dailySummaries.find(d => d.hasAnyCheckin)?.classification ?? null;
+      const last_day_classification = sortedDays.length > 0
+        ? (isDayConcerning(checkInsByDay[sortedDays[0]]) ? 'concerning' : 'normal')
+        : null;
       const baseline_active = total_days >= 3;
 
       let consecutive_concerning_days = 0;
-      for (const day of dailySummaries) {
-        if (day.classification === 'concerning') consecutive_concerning_days++;
+      for (const day of sortedDays) {
+        if (isDayConcerning(checkInsByDay[day])) consecutive_concerning_days++;
+        else break;
+      }
+
+      const { combinationFlag, lowSignalCount } = await getDailySummary(dogId);
+
+      const { data: signalRows } = await supabase
+        .from('signals')
+        .select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at')
+        .eq('dog_id', dogId)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
+
+      const signalDayMap = {};
+      for (const row of (signalRows ?? [])) {
+        const day = row.created_at.split('T')[0];
+        if (!signalDayMap[day]) signalDayMap[day] = [];
+        signalDayMap[day].push(row);
+      }
+      let consecutive_combination_days = 0;
+      for (let i = 0; i < 7; i++) {
+        const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const dayRows = signalDayMap[day] ?? [];
+        const dayLowCount = SIGNAL_DIMS.filter(dim => {
+          const vals = dayRows.map(r => r[dim]).filter(v => v != null && v !== 'null');
+          return isLowSignal(dim, vals);
+        }).length;
+        if (dayLowCount >= 2) consecutive_combination_days++;
         else break;
       }
 
@@ -954,6 +1064,9 @@ function CheckInScreen({ navigation, route }) {
         consecutive_concerning_days,
         last_day_classification,
         baseline_active,
+        combination_flag: combinationFlag,
+        low_signal_count_today: lowSignalCount,
+        consecutive_combination_days,
       };
 
       const { error: upsertError } = await supabase
@@ -961,15 +1074,12 @@ function CheckInScreen({ navigation, route }) {
         .upsert({ dog_id: dogId, baseline_data }, { onConflict: 'dog_id' });
       if (upsertError) console.log('[Baseline] upsert error:', upsertError);
       else console.log('[Baseline] calculated and saved:', JSON.stringify(baseline_data));
-
-      return dailySummaries;
     } catch (err) {
       console.log('[Baseline] error:', err);
-      return [];
     }
   };
 
-  const detectDeviation = async (dogId, checkInId, todaySummary) => {
+  const detectDeviation = async (dogId, checkInId, treatmentActive = false) => {
     try {
       const { data, error } = await supabase
         .from('baselines')
@@ -984,63 +1094,68 @@ function CheckInScreen({ navigation, route }) {
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
-      const ccd = b.consecutive_concerning_days ?? 0;
-      const today = formatDateUTC(new Date());
-      const summary = todaySummary ?? await getDailySummary(dogId, today);
-      const lowSignals = Object.entries(summary.signals).filter(([, v]) => v === 'low').map(([k]) => k);
-      const combinationFlag = lowSignals.length >= 2;
-
-      let alertLevel = null;
-      let alert_trigger_reason = null;
-      let consecutiveDays = ccd;
-
-      if (ccd >= 5) {
-        alertLevel = 3;
-        alert_trigger_reason = `${ccd} consecutive concerning days detected in the last 7 days.`;
-      } else if (ccd >= 3) {
-        alertLevel = 2;
-        alert_trigger_reason = `${ccd} consecutive concerning days detected in the last 7 days.`;
-      } else if (ccd >= 2) {
-        alertLevel = 1;
-        alert_trigger_reason = `${ccd} consecutive concerning days detected in the last 7 days.`;
-      } else if (combinationFlag) {
-        alertLevel = 1;
-        consecutiveDays = Math.max(ccd, 1);
-        alert_trigger_reason = `Multiple signals (${lowSignals.join(', ')}) showing low today.`;
+      // Alert suppression: max one alert per day
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data: todayAlerts } = await supabase
+        .from('alerts')
+        .select('alert_level')
+        .eq('dog_id', dogId)
+        .gte('created_at', todayStart.toISOString())
+        .limit(1);
+      if (todayAlerts && todayAlerts.length > 0) {
+        console.log('[Deviation] suppressed — alert already fired today');
+        return { alertLevel: null, consecutiveDays: 0 };
       }
 
-      console.log('[Deviation] consecutive_concerning_days:', ccd, 'combinationFlag:', combinationFlag, '→ alertLevel:', alertLevel);
+      // Consecutive concerning days rule (relaxed thresholds during active treatment)
+      const ccd = b.consecutive_concerning_days ?? 0;
+      let alertLevel = null;
+      if (treatmentActive) {
+        console.log('[HealthEvent] treatment context active — using relaxed thresholds');
+        if (ccd >= 5) alertLevel = 3;
+        else if (ccd >= 3) alertLevel = 2;
+        else if (ccd >= 4) alertLevel = 1;
+      } else {
+        if (ccd >= 5) alertLevel = 3;
+        else if (ccd >= 3) alertLevel = 2;
+        else if (ccd >= 2) alertLevel = 1;
+      }
+      console.log('[Deviation] consecutive_concerning_days:', ccd, '→ alertLevel:', alertLevel);
 
-      if (alertLevel !== null) {
-        const startOfDay = `${today}T00:00:00.000Z`;
-        const endOfDay = `${today}T23:59:59.999Z`;
-        const { data: existingAlerts, error: existingError } = await supabase
-          .from('alerts')
-          .select('dog_id')
-          .eq('dog_id', dogId)
-          .gte('created_at', startOfDay)
-          .lte('created_at', endOfDay)
-          .limit(1);
-        if (existingError) console.log('[Alert] existing alert check error:', existingError);
+      // Combination rule
+      const ccfd = b.consecutive_combination_days ?? 0;
+      const lowCount = b.low_signal_count_today ?? 0;
+      let combinationAlertLevel = null;
+      if (lowCount >= 3) combinationAlertLevel = 2;
+      else if (ccfd >= 3) combinationAlertLevel = 2;
+      else if (ccfd >= 2) combinationAlertLevel = 1;
+      console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '→ combinationAlertLevel:', combinationAlertLevel);
 
-        if (existingAlerts && existingAlerts.length > 0) {
-          console.log('[Alert] suppressed — alert already fired today');
-          return { alertLevel: null, consecutiveDays: ccd };
+      // Final: highest level from either rule
+      const finalLevel = Math.max(alertLevel ?? 0, combinationAlertLevel ?? 0) || null;
+
+      if (finalLevel !== null) {
+        const parts = [];
+        if (alertLevel !== null) parts.push(`${ccd} consecutive concerning day${ccd !== 1 ? 's' : ''}`);
+        if (combinationAlertLevel !== null) {
+          if (lowCount >= 3) parts.push(`${lowCount} low signals today (immediate)`);
+          else parts.push(`${ccfd} consecutive combination flag day${ccfd !== 1 ? 's' : ''}`);
         }
-        console.log('[Alert] proceeding — no alert fired today');
-
+        const alert_trigger_reason = parts.join(' + ') + ' detected.';
         const { error: alertError } = await supabase.from('alerts').insert({
           dog_id: dogId,
           check_in_id: checkInId,
-          alert_level: `level_${alertLevel}`,
+          alert_level: `level_${finalLevel}`,
           alert_trigger_reason,
           baseline_snapshot: b,
         });
         if (alertError) console.log('[Deviation] alert insert error:', alertError);
-        else console.log('[Deviation] alert saved — level:', alertLevel, '|', alert_trigger_reason);
+        else console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason);
       }
 
-      return { alertLevel, consecutiveDays };
+      const consecutiveDays = (alertLevel ?? 0) >= (combinationAlertLevel ?? 0) ? ccd : ccfd;
+      return { alertLevel: finalLevel, consecutiveDays };
     } catch (err) {
       console.log('[Deviation] error:', err);
       return { alertLevel: null, consecutiveDays: 0 };
@@ -1058,10 +1173,10 @@ function CheckInScreen({ navigation, route }) {
       systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond gently but clearly. Acknowledge what the owner shared. Recommend they mention this pattern to their vet soon — not urgently but within the next day or two. Do not diagnose. Do not alarm. 2 sentences maximum.`;
     } else if (alertLevel === 1) {
       systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond calmly and warmly. Acknowledge specifically what the owner shared today. Note that you have noticed this pattern over the past few days and will keep watching. Do not diagnose. Do not alarm. 2 sentences maximum.`;
+    } else if (classification === 'concerning') {
+      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. Acknowledge specifically what they shared. Let them know you heard it and you are paying close attention. Convey warmth and quiet attentiveness — you are watching alongside them. Do not suggest a vet. Do not diagnose. Do not use alarm. Do not use phrases like "keep an eye on" or "monitor closely". 2 sentences maximum.`;
     } else if (classification === 'irrelevant') {
       systemPrompt = `You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how ${name} is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life.`;
-    } else if (classification === 'concerning') {
-      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. Respond calmly and warmly. Acknowledge the concern specifically, express genuine care, and let them know you're keeping an eye on things. Do not diagnose. Do not recommend contacting a vet. Do not alarm. 2 sentences maximum.`;
     } else {
       systemPrompt = 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
     }
@@ -1273,12 +1388,19 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         if (result.text) {
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
-          const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
+          const treatmentActive = await getActiveTreatment(dogIdRef.current);
+          const checkInId = await saveCheckIn(blob, blob.type, result.text, classification, treatmentActive);
+          if (classification === 'health_event') {
+            extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
+          }
           if (classification === 'concerning' || classification === 'health_event') {
             await extractSignals(result.text, checkInId, dogIdRef.current);
           }
-          const dailySummaries = await calculateBaseline(dogIdRef.current);
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, dailySummaries?.[0]);
+          await calculateBaseline(dogIdRef.current);
+          if (classification !== 'health_event') {
+            await checkTreatmentWindowClose(dogIdRef.current);
+          }
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
@@ -1323,12 +1445,19 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         if (result.text) {
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
-          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
+          const treatmentActive = await getActiveTreatment(dogIdRef.current);
+          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification, treatmentActive);
+          if (classification === 'health_event') {
+            extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
+          }
           if (classification === 'concerning' || classification === 'health_event') {
             await extractSignals(result.text, checkInId, dogIdRef.current);
           }
-          const dailySummaries = await calculateBaseline(dogIdRef.current);
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, dailySummaries?.[0]);
+          await calculateBaseline(dogIdRef.current);
+          if (classification !== 'health_event') {
+            await checkTreatmentWindowClose(dogIdRef.current);
+          }
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
@@ -1647,7 +1776,7 @@ export default function App() {
         <Stack.Screen name="DogHealth" component={DogHealthScreen} />
         <Stack.Screen name="DogMood" component={DogMoodScreen} />
         <Stack.Screen name="Account" component={AccountScreen} />
-        <Stack.Screen name="MagicLink" component={MagicLinkScreen} />
+        <Stack.Screen name="OtpCode" component={OtpScreen} />
         <Stack.Screen name="SignIn" component={SignInScreen} />
         <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
@@ -1656,44 +1785,102 @@ export default function App() {
   );
 }
 
-// ─── Screen 8: Magic Link Sent ────────────────────────────────────────────────
+// ─── Screen: OTP Code Entry ───────────────────────────────────────────────────
 
-function MagicLinkScreen({ navigation, route }) {
-  const { email = '', userName = '', dogName = 'your dog' } = route.params ?? {};
+function OtpScreen({ navigation, route }) {
+  const { email = '', isNewUser = false } = route.params ?? {};
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
   const [canResend, setCanResend] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setCanResend(true), 60000);
     return () => clearTimeout(timer);
   }, []);
 
+  const handleVerify = async () => {
+    if (code.length !== 8) return;
+    setIsVerifying(true);
+    setError('');
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email,
+      token: code,
+      type: 'email',
+    });
+    setIsVerifying(false);
+    if (verifyError) {
+      setError('That code is incorrect. Please try again.');
+    }
+    // Navigation handled by onAuthStateChange SIGNED_IN event
+  };
+
+  const handleResend = async () => {
+    setIsResending(true);
+    setCanResend(false);
+    setError('');
+    await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: isNewUser },
+    });
+    setIsResending(false);
+    setTimeout(() => setCanResend(true), 60000);
+  };
+
+  const canSubmit = code.length === 8;
+
   return (
-    <View style={magicLink.container}>
-      <View style={magicLink.content}>
-        <Text style={magicLink.emoji}>✉️</Text>
+    <KeyboardAvoidingView
+      style={otpScreen.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <View style={otpScreen.content}>
+        <Text style={otpScreen.emoji}>✉️</Text>
 
-        <Text style={magicLink.headline}>Check your email.</Text>
+        <Text style={otpScreen.headline}>Check your email.</Text>
 
-        <Text style={magicLink.subtext}>
-          {'I sent a sign-in link to '}
-          <Text style={magicLink.emailHighlight}>{email}</Text>
-          {'. Tap it to finish setting up.'}
+        <Text style={otpScreen.subtext}>
+          {'We sent an 8-digit code to '}
+          <Text style={otpScreen.emailHighlight}>{email}</Text>
+          {'. Enter it below.'}
         </Text>
 
-        <View style={magicLink.links}>
+        <TextInput
+          style={otpScreen.input}
+          value={code}
+          onChangeText={(val) => { setCode(val.replace(/[^0-9]/g, '')); setError(''); }}
+          keyboardType="number-pad"
+          maxLength={8}
+          placeholder="00000000"
+          placeholderTextColor="#CCCCCC"
+          autoFocus
+          textAlign="center"
+        />
+
+        {error ? <Text style={otpScreen.error}>{error}</Text> : null}
+
+        <TouchableOpacity
+          style={[otpScreen.button, { backgroundColor: canSubmit && !isVerifying ? '#0F6E56' : '#8CB5A8' }]}
+          activeOpacity={0.85}
+          disabled={!canSubmit || isVerifying}
+          onPress={handleVerify}
+        >
+          <Text style={otpScreen.buttonText}>{isVerifying ? 'Verifying…' : 'Verify code'}</Text>
+        </TouchableOpacity>
+
+        <View style={otpScreen.links}>
           {canResend && (
-            <TouchableOpacity onPress={() => {}} activeOpacity={0.7}>
-              <Text style={magicLink.resendLink}>Resend link</Text>
+            <TouchableOpacity onPress={handleResend} disabled={isResending} activeOpacity={0.7}>
+              <Text style={otpScreen.resendLink}>{isResending ? 'Sending…' : 'Resend code'}</Text>
             </TouchableOpacity>
           )}
-
           <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7}>
-            <Text style={magicLink.backLink}>Wrong email? Go back</Text>
+            <Text style={otpScreen.backLink}>Wrong email? Go back</Text>
           </TouchableOpacity>
         </View>
-
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1916,14 +2103,13 @@ const dogAge = StyleSheet.create({
   },
 });
 
-// ─── Styles: Magic Link ───────────────────────────────────────────────────────
+// ─── Styles: OTP Screen ───────────────────────────────────────────────────────
 
-const magicLink = StyleSheet.create({
+const otpScreen = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
-    alignItems: 'center',
     paddingHorizontal: 36,
   },
   content: {
@@ -1950,6 +2136,36 @@ const magicLink = StyleSheet.create({
   emailHighlight: {
     color: '#333333',
     fontWeight: '600',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#111111',
+    backgroundColor: '#F7F7F7',
+    width: '100%',
+    letterSpacing: 8,
+  },
+  error: {
+    fontSize: 13,
+    color: '#DC2626',
+    textAlign: 'center',
+  },
+  button: {
+    borderRadius: 50,
+    paddingVertical: 18,
+    alignItems: 'center',
+    width: '100%',
+  },
+  buttonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
   links: {
     alignItems: 'center',
