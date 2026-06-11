@@ -683,6 +683,83 @@ function CongratulationsScreen({ navigation, route }) {
   );
 }
 
+// ─── Pattern engine: daily summaries ────────────────────────────────────────
+
+// Worst-state ranking per signal — higher rank wins when merging a day's check-ins.
+const SIGNAL_SEVERITY = {
+  appetite: { normal: 0, low: 1, skipped: 2 },
+  energy: { normal: 0, high: 1, low: 2 },
+  elimination: { normal: 0, irregular: 1, absent: 2 },
+  water_intake: { normal: 0, low: 1, absent: 2 },
+  demeanor: { normal: 0, low: 1 },
+  vomiting: { none: 0, once: 1, multiple: 2 },
+};
+
+const EMPTY_SIGNALS = { appetite: null, energy: null, elimination: null, water_intake: null, demeanor: null, vomiting: null };
+
+const formatDateUTC = (d) => d.toISOString().slice(0, 10);
+
+const getLastNDates = (n) => {
+  const dates = [];
+  for (let i = 0; i < n; i++) {
+    dates.push(formatDateUTC(new Date(Date.now() - i * 24 * 60 * 60 * 1000)));
+  }
+  return dates; // most recent first — index 0 is today
+};
+
+const getDailySummary = async (dogId, date) => {
+  try {
+    const startOfDay = `${date}T00:00:00.000Z`;
+    const endOfDay = `${date}T23:59:59.999Z`;
+
+    const { data: checkIns, error: checkInsError } = await supabase
+      .from('check_ins')
+      .select('check_in_id, input_classification')
+      .eq('dog_id', dogId)
+      .gte('created_at', startOfDay)
+      .lte('created_at', endOfDay);
+    if (checkInsError) {
+      console.log('[DailySummary] check_ins query error:', checkInsError);
+      return { date, hasAnyCheckin: false, classification: 'normal', signals: { ...EMPTY_SIGNALS }, checkinCount: 0 };
+    }
+    if (checkIns.length === 0) {
+      return { date, hasAnyCheckin: false, classification: 'normal', signals: { ...EMPTY_SIGNALS }, checkinCount: 0 };
+    }
+
+    let classification = 'normal';
+    if (checkIns.some(c => c.input_classification === 'health_event')) classification = 'health_event';
+    else if (checkIns.some(c => c.input_classification === 'concerning')) classification = 'concerning';
+
+    const checkInIds = checkIns.map(c => c.check_in_id);
+    const { data: signalRows, error: signalsError } = await supabase
+      .from('signals')
+      .select('appetite, energy, elimination, water_intake, demeanor, vomiting')
+      .in('check_in_id', checkInIds);
+    if (signalsError) console.log('[DailySummary] signals query error:', signalsError);
+
+    const signals = { ...EMPTY_SIGNALS };
+    for (const key of Object.keys(SIGNAL_SEVERITY)) {
+      let worst = null;
+      let worstRank = -1;
+      for (const row of signalRows ?? []) {
+        const val = row[key];
+        if (val === null || val === undefined || val === 'null') continue;
+        const rank = SIGNAL_SEVERITY[key][val] ?? 0;
+        if (rank > worstRank) {
+          worstRank = rank;
+          worst = val;
+        }
+      }
+      signals[key] = worst;
+    }
+
+    return { date, hasAnyCheckin: true, classification, signals, checkinCount: checkIns.length };
+  } catch (err) {
+    console.log('[DailySummary] error:', err);
+    return { date, hasAnyCheckin: false, classification: 'normal', signals: { ...EMPTY_SIGNALS }, checkinCount: 0 };
+  }
+};
+
 // ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
 
 function CheckInScreen({ navigation, route }) {
@@ -848,38 +925,34 @@ function CheckInScreen({ navigation, route }) {
 
   const calculateBaseline = async (dogId) => {
     try {
-      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const { data, error } = await supabase
-        .from('check_ins')
-        .select('input_classification, created_at')
-        .eq('dog_id', dogId)
-        .in('contributed_to_baseline', ['yes', 'partial'])
-        .gte('created_at', since)
-        .order('created_at', { ascending: false });
-      if (error) { console.log('[Baseline] query error:', error); return; }
+      const dailySummaries = [];
+      for (const date of getLastNDates(7)) {
+        dailySummaries.push(await getDailySummary(dogId, date));
+      }
 
-      const total_checkins = data.length;
-      const normal_count = data.filter(r => r.input_classification === 'normal').length;
-      const concerning_count = data.filter(r => r.input_classification === 'concerning').length;
-      const normal_rate = total_checkins > 0 ? normal_count / total_checkins : 0;
-      const concerning_rate = total_checkins > 0 ? concerning_count / total_checkins : 0;
-      const last_checkin_classification = data[0]?.input_classification ?? null;
-      const baseline_active = total_checkins >= 3;
+      const activeDays = dailySummaries.filter(d => d.hasAnyCheckin);
+      const total_days = activeDays.length;
+      const normal_days = activeDays.filter(d => d.classification === 'normal').length;
+      const concerning_days = activeDays.filter(d => d.classification === 'concerning').length;
+      const normal_rate = total_days > 0 ? normal_days / total_days : 0;
+      const concerning_rate = total_days > 0 ? concerning_days / total_days : 0;
+      const last_day_classification = dailySummaries.find(d => d.hasAnyCheckin)?.classification ?? null;
+      const baseline_active = total_days >= 3;
 
       let consecutive_concerning_days = 0;
-      for (const row of data) {
-        if (row.input_classification === 'concerning') consecutive_concerning_days++;
+      for (const day of dailySummaries) {
+        if (day.classification === 'concerning') consecutive_concerning_days++;
         else break;
       }
 
       const baseline_data = {
-        total_checkins,
-        normal_count,
-        concerning_count,
+        total_days,
+        normal_days,
+        concerning_days,
         normal_rate,
         concerning_rate,
         consecutive_concerning_days,
-        last_checkin_classification,
+        last_day_classification,
         baseline_active,
       };
 
@@ -888,12 +961,15 @@ function CheckInScreen({ navigation, route }) {
         .upsert({ dog_id: dogId, baseline_data }, { onConflict: 'dog_id' });
       if (upsertError) console.log('[Baseline] upsert error:', upsertError);
       else console.log('[Baseline] calculated and saved:', JSON.stringify(baseline_data));
+
+      return dailySummaries;
     } catch (err) {
       console.log('[Baseline] error:', err);
+      return [];
     }
   };
 
-  const detectDeviation = async (dogId, checkInId) => {
+  const detectDeviation = async (dogId, checkInId, todaySummary) => {
     try {
       const { data, error } = await supabase
         .from('baselines')
@@ -904,20 +980,55 @@ function CheckInScreen({ navigation, route }) {
 
       const b = data?.baseline_data;
       if (!b?.baseline_active) {
-        console.log('[Deviation] skipped — baseline not active yet (total_checkins:', b?.total_checkins, ')');
+        console.log('[Deviation] skipped — baseline not active yet (total_days:', b?.total_days, ')');
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
       const ccd = b.consecutive_concerning_days ?? 0;
-      let alertLevel = null;
-      if (ccd >= 5) alertLevel = 3;
-      else if (ccd >= 3) alertLevel = 2;
-      else if (ccd >= 2) alertLevel = 1;
+      const today = formatDateUTC(new Date());
+      const summary = todaySummary ?? await getDailySummary(dogId, today);
+      const lowSignals = Object.entries(summary.signals).filter(([, v]) => v === 'low').map(([k]) => k);
+      const combinationFlag = lowSignals.length >= 2;
 
-      console.log('[Deviation] consecutive_concerning_days:', ccd, '→ alertLevel:', alertLevel);
+      let alertLevel = null;
+      let alert_trigger_reason = null;
+      let consecutiveDays = ccd;
+
+      if (ccd >= 5) {
+        alertLevel = 3;
+        alert_trigger_reason = `${ccd} consecutive concerning days detected in the last 7 days.`;
+      } else if (ccd >= 3) {
+        alertLevel = 2;
+        alert_trigger_reason = `${ccd} consecutive concerning days detected in the last 7 days.`;
+      } else if (ccd >= 2) {
+        alertLevel = 1;
+        alert_trigger_reason = `${ccd} consecutive concerning days detected in the last 7 days.`;
+      } else if (combinationFlag) {
+        alertLevel = 1;
+        consecutiveDays = Math.max(ccd, 1);
+        alert_trigger_reason = `Multiple signals (${lowSignals.join(', ')}) showing low today.`;
+      }
+
+      console.log('[Deviation] consecutive_concerning_days:', ccd, 'combinationFlag:', combinationFlag, '→ alertLevel:', alertLevel);
 
       if (alertLevel !== null) {
-        const alert_trigger_reason = `${ccd} consecutive concerning check-in${ccd !== 1 ? 's' : ''} detected in the last 7 days.`;
+        const startOfDay = `${today}T00:00:00.000Z`;
+        const endOfDay = `${today}T23:59:59.999Z`;
+        const { data: existingAlerts, error: existingError } = await supabase
+          .from('alerts')
+          .select('dog_id')
+          .eq('dog_id', dogId)
+          .gte('created_at', startOfDay)
+          .lte('created_at', endOfDay)
+          .limit(1);
+        if (existingError) console.log('[Alert] existing alert check error:', existingError);
+
+        if (existingAlerts && existingAlerts.length > 0) {
+          console.log('[Alert] suppressed — alert already fired today');
+          return { alertLevel: null, consecutiveDays: ccd };
+        }
+        console.log('[Alert] proceeding — no alert fired today');
+
         const { error: alertError } = await supabase.from('alerts').insert({
           dog_id: dogId,
           check_in_id: checkInId,
@@ -929,7 +1040,7 @@ function CheckInScreen({ navigation, route }) {
         else console.log('[Deviation] alert saved — level:', alertLevel, '|', alert_trigger_reason);
       }
 
-      return { alertLevel, consecutiveDays: ccd };
+      return { alertLevel, consecutiveDays };
     } catch (err) {
       console.log('[Deviation] error:', err);
       return { alertLevel: null, consecutiveDays: 0 };
@@ -949,6 +1060,8 @@ function CheckInScreen({ navigation, route }) {
       systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond calmly and warmly. Acknowledge specifically what the owner shared today. Note that you have noticed this pattern over the past few days and will keep watching. Do not diagnose. Do not alarm. 2 sentences maximum.`;
     } else if (classification === 'irrelevant') {
       systemPrompt = `You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how ${name} is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life.`;
+    } else if (classification === 'concerning') {
+      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. Respond calmly and warmly. Acknowledge the concern specifically, express genuine care, and let them know you're keeping an eye on things. Do not diagnose. Do not recommend contacting a vet. Do not alarm. 2 sentences maximum.`;
     } else {
       systemPrompt = 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
     }
@@ -1162,10 +1275,10 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
           if (classification === 'concerning' || classification === 'health_event') {
-            extractSignals(result.text, checkInId, dogIdRef.current);
+            await extractSignals(result.text, checkInId, dogIdRef.current);
           }
-          await calculateBaseline(dogIdRef.current);
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
+          const dailySummaries = await calculateBaseline(dogIdRef.current);
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, dailySummaries?.[0]);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
@@ -1212,10 +1325,10 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           const classification = await classifyCheckIn(result.text);
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
           if (classification === 'concerning' || classification === 'health_event') {
-            extractSignals(result.text, checkInId, dogIdRef.current);
+            await extractSignals(result.text, checkInId, dogIdRef.current);
           }
-          await calculateBaseline(dogIdRef.current);
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
+          const dailySummaries = await calculateBaseline(dogIdRef.current);
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, dailySummaries?.[0]);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
