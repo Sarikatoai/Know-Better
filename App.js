@@ -474,6 +474,20 @@ function DogMoodScreen({ navigation, route }) {
 
 const isValidEmail = (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
 
+const SIGNAL_DIMS = ['appetite', 'energy', 'water_intake', 'demeanor', 'vomiting', 'elimination'];
+
+const isLowSignal = (dim, values) => {
+  switch (dim) {
+    case 'appetite':    return values.some(v => v === 'low' || v === 'skipped');
+    case 'energy':      return values.some(v => v === 'low');
+    case 'water_intake':return values.some(v => v === 'low' || v === 'absent');
+    case 'demeanor':    return values.some(v => v === 'low');
+    case 'vomiting':    return values.some(v => v === 'once' || v === 'multiple');
+    case 'elimination': return values.some(v => v === 'irregular' || v === 'absent');
+    default: return false;
+  }
+};
+
 function AccountScreen({ navigation, route }) {
   const dogData = route.params ?? {};
   const [userName, setUserName] = useState('');
@@ -838,6 +852,31 @@ function CheckInScreen({ navigation, route }) {
     }
   };
 
+  const getDailySummary = async (dogId) => {
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data, error } = await supabase
+        .from('signals')
+        .select('appetite, energy, water_intake, demeanor, vomiting, elimination')
+        .eq('dog_id', dogId)
+        .gte('created_at', todayStart.toISOString());
+      if (error) { console.log('[DailySummary] query error:', error); return { lowSignals: [], combinationFlag: false, lowSignalCount: 0 }; }
+      if (!data || data.length === 0) return { lowSignals: [], combinationFlag: false, lowSignalCount: 0 };
+
+      const lowSignals = SIGNAL_DIMS.filter(dim => {
+        const values = data.map(r => r[dim]).filter(v => v != null && v !== 'null');
+        return isLowSignal(dim, values);
+      });
+      const combinationFlag = lowSignals.length >= 2;
+      console.log('[Combination] signals low today:', lowSignals, '— combination_flag:', combinationFlag);
+      return { lowSignals, combinationFlag, lowSignalCount: lowSignals.length };
+    } catch (err) {
+      console.log('[DailySummary] error:', err);
+      return { lowSignals: [], combinationFlag: false, lowSignalCount: 0 };
+    }
+  };
+
   const calculateBaseline = async (dogId) => {
     try {
       const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -850,29 +889,75 @@ function CheckInScreen({ navigation, route }) {
         .order('created_at', { ascending: false });
       if (error) { console.log('[Baseline] query error:', error); return; }
 
-      const total_checkins = data.length;
-      const normal_count = data.filter(r => r.input_classification === 'normal').length;
-      const concerning_count = data.filter(r => r.input_classification === 'concerning').length;
-      const normal_rate = total_checkins > 0 ? normal_count / total_checkins : 0;
-      const concerning_rate = total_checkins > 0 ? concerning_count / total_checkins : 0;
-      const last_checkin_classification = data[0]?.input_classification ?? null;
-      const baseline_active = total_checkins >= 3;
+      // Group check-ins by calendar day
+      const checkInsByDay = {};
+      for (const row of data) {
+        const day = row.created_at.split('T')[0];
+        if (!checkInsByDay[day]) checkInsByDay[day] = [];
+        checkInsByDay[day].push(row);
+      }
+
+      // Days sorted newest first
+      const sortedDays = Object.keys(checkInsByDay).sort().reverse();
+      const total_days = sortedDays.length;
+
+      // A day is concerning if any check-in that day was concerning
+      const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning');
+
+      const normal_days = sortedDays.filter(day => !isDayConcerning(checkInsByDay[day])).length;
+      const concerning_days = sortedDays.filter(day => isDayConcerning(checkInsByDay[day])).length;
+      const normal_rate = total_days > 0 ? normal_days / total_days : 0;
+      const concerning_rate = total_days > 0 ? concerning_days / total_days : 0;
+      const last_day_classification = sortedDays.length > 0
+        ? (isDayConcerning(checkInsByDay[sortedDays[0]]) ? 'concerning' : 'normal')
+        : null;
+      const baseline_active = total_days >= 3;
 
       let consecutive_concerning_days = 0;
-      for (const row of data) {
-        if (row.input_classification === 'concerning') consecutive_concerning_days++;
+      for (const day of sortedDays) {
+        if (isDayConcerning(checkInsByDay[day])) consecutive_concerning_days++;
+        else break;
+      }
+
+      const { combinationFlag, lowSignalCount } = await getDailySummary(dogId);
+
+      const { data: signalRows } = await supabase
+        .from('signals')
+        .select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at')
+        .eq('dog_id', dogId)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
+
+      const signalDayMap = {};
+      for (const row of (signalRows ?? [])) {
+        const day = row.created_at.split('T')[0];
+        if (!signalDayMap[day]) signalDayMap[day] = [];
+        signalDayMap[day].push(row);
+      }
+      const sortedSignalDays = Object.keys(signalDayMap).sort().reverse();
+      let consecutive_combination_days = 0;
+      for (const day of sortedSignalDays) {
+        const dayRows = signalDayMap[day];
+        const dayLowCount = SIGNAL_DIMS.filter(dim => {
+          const vals = dayRows.map(r => r[dim]).filter(v => v != null && v !== 'null');
+          return isLowSignal(dim, vals);
+        }).length;
+        if (dayLowCount >= 2) consecutive_combination_days++;
         else break;
       }
 
       const baseline_data = {
-        total_checkins,
-        normal_count,
-        concerning_count,
+        total_days,
+        normal_days,
+        concerning_days,
         normal_rate,
         concerning_rate,
         consecutive_concerning_days,
-        last_checkin_classification,
+        last_day_classification,
         baseline_active,
+        combination_flag: combinationFlag,
+        low_signal_count_today: lowSignalCount,
+        consecutive_combination_days,
       };
 
       const { error: upsertError } = await supabase
@@ -896,32 +981,65 @@ function CheckInScreen({ navigation, route }) {
 
       const b = data?.baseline_data;
       if (!b?.baseline_active) {
-        console.log('[Deviation] skipped — baseline not active yet (total_checkins:', b?.total_checkins, ')');
+        console.log('[Deviation] skipped — baseline not active yet (total_days:', b?.total_days, ')');
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
+      // Alert suppression: max one alert per day
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data: todayAlerts } = await supabase
+        .from('alerts')
+        .select('alert_level')
+        .eq('dog_id', dogId)
+        .gte('created_at', todayStart.toISOString())
+        .limit(1);
+      if (todayAlerts && todayAlerts.length > 0) {
+        console.log('[Deviation] suppressed — alert already fired today');
+        return { alertLevel: null, consecutiveDays: 0 };
+      }
+
+      // Consecutive concerning days rule
       const ccd = b.consecutive_concerning_days ?? 0;
       let alertLevel = null;
       if (ccd >= 5) alertLevel = 3;
       else if (ccd >= 3) alertLevel = 2;
       else if (ccd >= 2) alertLevel = 1;
-
       console.log('[Deviation] consecutive_concerning_days:', ccd, '→ alertLevel:', alertLevel);
 
-      if (alertLevel !== null) {
-        const alert_trigger_reason = `${ccd} consecutive concerning check-in${ccd !== 1 ? 's' : ''} detected in the last 7 days.`;
+      // Combination rule
+      const ccfd = b.consecutive_combination_days ?? 0;
+      const lowCount = b.low_signal_count_today ?? 0;
+      let combinationAlertLevel = null;
+      if (lowCount >= 3) combinationAlertLevel = 2;
+      else if (ccfd >= 3) combinationAlertLevel = 2;
+      else if (ccfd >= 2) combinationAlertLevel = 1;
+      console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '→ combinationAlertLevel:', combinationAlertLevel);
+
+      // Final: highest level from either rule
+      const finalLevel = Math.max(alertLevel ?? 0, combinationAlertLevel ?? 0) || null;
+
+      if (finalLevel !== null) {
+        const parts = [];
+        if (alertLevel !== null) parts.push(`${ccd} consecutive concerning day${ccd !== 1 ? 's' : ''}`);
+        if (combinationAlertLevel !== null) {
+          if (lowCount >= 3) parts.push(`${lowCount} low signals today (immediate)`);
+          else parts.push(`${ccfd} consecutive combination flag day${ccfd !== 1 ? 's' : ''}`);
+        }
+        const alert_trigger_reason = parts.join(' + ') + ' detected.';
         const { error: alertError } = await supabase.from('alerts').insert({
           dog_id: dogId,
           check_in_id: checkInId,
-          alert_level: `level_${alertLevel}`,
+          alert_level: `level_${finalLevel}`,
           alert_trigger_reason,
           baseline_snapshot: b,
         });
         if (alertError) console.log('[Deviation] alert insert error:', alertError);
-        else console.log('[Deviation] alert saved — level:', alertLevel, '|', alert_trigger_reason);
+        else console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason);
       }
 
-      return { alertLevel, consecutiveDays: ccd };
+      const consecutiveDays = (alertLevel ?? 0) >= (combinationAlertLevel ?? 0) ? ccd : ccfd;
+      return { alertLevel: finalLevel, consecutiveDays };
     } catch (err) {
       console.log('[Deviation] error:', err);
       return { alertLevel: null, consecutiveDays: 0 };
@@ -939,6 +1057,8 @@ function CheckInScreen({ navigation, route }) {
       systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond gently but clearly. Acknowledge what the owner shared. Recommend they mention this pattern to their vet soon — not urgently but within the next day or two. Do not diagnose. Do not alarm. 2 sentences maximum.`;
     } else if (alertLevel === 1) {
       systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond calmly and warmly. Acknowledge specifically what the owner shared today. Note that you have noticed this pattern over the past few days and will keep watching. Do not diagnose. Do not alarm. 2 sentences maximum.`;
+    } else if (classification === 'concerning') {
+      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. Acknowledge specifically what they shared. Let them know you heard it and you are paying close attention. Convey warmth and quiet attentiveness — you are watching alongside them. Do not suggest a vet. Do not diagnose. Do not use alarm. Do not use phrases like "keep an eye on" or "monitor closely". 2 sentences maximum.`;
     } else if (classification === 'irrelevant') {
       systemPrompt = `You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how ${name} is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life.`;
     } else {
