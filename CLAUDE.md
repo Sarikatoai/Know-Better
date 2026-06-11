@@ -12,14 +12,13 @@
 - Never install new packages without asking first
 - Never write tests or use Playwright
 - Make minimum changes needed — do not refactor working code
-- MVP Phase 1 scope: happy path only — voice input, Whisper transcription, Claude response, Supabase save
-- No alert logic yet — that is MVP Phase 2
 
 ## Current Build Status
 
 MVP Phase 1 — COMPLETE
+MVP Phase 2 — COMPLETE
 
-Everything working end to end on real phone:
+MVP Phase 1 complete:
 - All 10 onboarding screens
 - Supabase Auth magic link
 - Onboarding data saves to users, dogs, family_members tables
@@ -31,18 +30,37 @@ Everything working end to end on real phone:
 - Check-in saved to check_ins table
 - Response saved to responses table
 
-## What is being built next
+MVP Phase 2 complete:
+- Input classification — normal, concerning, health_event, irrelevant
+- Classification saved to check_ins.input_classification
+- contributed_to_baseline set correctly per classification
+- Baseline calculation — 7 day rolling window
+- Baseline metrics: normal_rate, concerning_rate, consecutive_concerning_days
+- Baseline saved to baselines table after every check-in
+- baseline_active requires minimum 3 check-ins
+- Deviation detection — consecutive concerning days rule
+- Level 1: 2 consecutive concerning days
+- Level 2: 3 consecutive concerning days
+- Level 3: 5 consecutive concerning days
+- Alert saved to alerts table with trigger reason and baseline snapshot
+- Dynamic alert response prompts with dog name, check-in text, consecutive days
+- RLS policies added for baselines and alerts tables
 
-MVP Phase 2 — Level 1 alert logic
-- Input classification — four buckets via Claude
-- Baseline calculation — nightly recalculation
-- Single signal flag detection
-- Level 1 alert response generation
+## Phase 3 Architecture — Pattern Engine
+
+**Key change:** Pattern engine operates on daily summaries, not individual check-ins.
+
+- Multiple check-ins per day are allowed
+- Baseline, consecutive day rule, and combination rule all aggregate check-ins by day before evaluation
+- A day is "concerning" if any contributing check-in that day is classified as concerning
+- Max one alert per day per dog
 
 ## Database Tables
 
 - `users` — user_id, first_name, email
 - `dogs` — dog_id, owner_id, dog_name, breed, sex, date_of_birth, pre_existing_health_conditions, current_mood_at_onboarding
 - `family_members` — member_id, owner_id, member_user_id, dog_id, role, can_log, can_view, can_manage
-- `check_ins` — check_in_id, dog_id, family_member_id, check_in_type, audio_file_url, whisper_raw_text, check_in_text, transcription_status, contributed_to_baseline
+- `check_ins` — check_in_id, dog_id, family_member_id, check_in_type, audio_file_url, whisper_raw_text, check_in_text, transcription_status, input_classification, contributed_to_baseline
 - `responses` — response_id, check_in_id, dog_id, response_text, response_type, response_status, was_alert
+- `baselines` — dog_id, baseline_data (JSONB)
+- `alerts` — dog_id, check_in_id, alert_level, alert_trigger_reason, baseline_snapshot

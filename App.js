@@ -496,20 +496,16 @@ function AccountScreen({ navigation, route }) {
       ['onboarding_notes', dogData.notes ?? ''],
       ['onboarding_mood', dogData.mood ?? ''],
     ]);
-    console.log('[OTP] emailRedirectTo:', AUTH_REDIRECT_URL);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: AUTH_REDIRECT_URL,
-      },
+      options: { shouldCreateUser: true },
     });
     if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
     setIsLoading(false);
     if (authError) {
       setError('Something went wrong. Please try again.');
     } else {
-      navigation.navigate('MagicLink', { email: email.trim(), userName, dogName: dogData.dogName });
+      navigation.navigate('OtpCode', { email: email.trim(), isNewUser: true });
     }
   };
 
@@ -542,7 +538,7 @@ function AccountScreen({ navigation, route }) {
             <Text style={account.label}>Email address</Text>
             <TextInput
               style={account.input}
-              placeholder="I'll send your sign-in link here"
+              placeholder="I'll send your code here"
               placeholderTextColor="#AAAAAA"
               value={email}
               onChangeText={(val) => { setEmail(val); setError(''); }}
@@ -563,7 +559,7 @@ function AccountScreen({ navigation, route }) {
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
         >
-          <Text style={account.buttonText}>{isLoading ? 'Sending…' : 'Send my link'}</Text>
+          <Text style={account.buttonText}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -582,20 +578,16 @@ function SignInScreen({ navigation }) {
   const handleSendLink = async () => {
     setIsLoading(true);
     setError('');
-    console.log('[OTP] emailRedirectTo:', AUTH_REDIRECT_URL);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: AUTH_REDIRECT_URL,
-      },
+      options: { shouldCreateUser: false },
     });
     if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
     setIsLoading(false);
     if (authError) {
       setError('Something went wrong. Please try again.');
     } else {
-      navigation.navigate('MagicLink', { email: email.trim() });
+      navigation.navigate('OtpCode', { email: email.trim(), isNewUser: false });
     }
   };
 
@@ -607,7 +599,7 @@ function SignInScreen({ navigation }) {
       <View style={signIn.inner}>
         <View style={signIn.intro}>
           <Text style={signIn.headline}>Welcome back.</Text>
-          <Text style={signIn.subtext}>I'll send you a sign-in link.</Text>
+          <Text style={signIn.subtext}>I'll send you an 8-digit code.</Text>
         </View>
 
         <View style={signIn.form}>
@@ -635,7 +627,7 @@ function SignInScreen({ navigation }) {
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
         >
-          <Text style={signIn.buttonText}>{isLoading ? 'Sending…' : 'Send my link'}</Text>
+          <Text style={signIn.buttonText}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -1534,7 +1526,7 @@ export default function App() {
         <Stack.Screen name="DogHealth" component={DogHealthScreen} />
         <Stack.Screen name="DogMood" component={DogMoodScreen} />
         <Stack.Screen name="Account" component={AccountScreen} />
-        <Stack.Screen name="MagicLink" component={MagicLinkScreen} />
+        <Stack.Screen name="OtpCode" component={OtpScreen} />
         <Stack.Screen name="SignIn" component={SignInScreen} />
         <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
@@ -1543,44 +1535,102 @@ export default function App() {
   );
 }
 
-// ─── Screen 8: Magic Link Sent ────────────────────────────────────────────────
+// ─── Screen: OTP Code Entry ───────────────────────────────────────────────────
 
-function MagicLinkScreen({ navigation, route }) {
-  const { email = '', userName = '', dogName = 'your dog' } = route.params ?? {};
+function OtpScreen({ navigation, route }) {
+  const { email = '', isNewUser = false } = route.params ?? {};
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
   const [canResend, setCanResend] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setCanResend(true), 60000);
     return () => clearTimeout(timer);
   }, []);
 
+  const handleVerify = async () => {
+    if (code.length !== 8) return;
+    setIsVerifying(true);
+    setError('');
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email,
+      token: code,
+      type: 'email',
+    });
+    setIsVerifying(false);
+    if (verifyError) {
+      setError('That code is incorrect. Please try again.');
+    }
+    // Navigation handled by onAuthStateChange SIGNED_IN event
+  };
+
+  const handleResend = async () => {
+    setIsResending(true);
+    setCanResend(false);
+    setError('');
+    await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: isNewUser },
+    });
+    setIsResending(false);
+    setTimeout(() => setCanResend(true), 60000);
+  };
+
+  const canSubmit = code.length === 8;
+
   return (
-    <View style={magicLink.container}>
-      <View style={magicLink.content}>
-        <Text style={magicLink.emoji}>✉️</Text>
+    <KeyboardAvoidingView
+      style={otpScreen.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <View style={otpScreen.content}>
+        <Text style={otpScreen.emoji}>✉️</Text>
 
-        <Text style={magicLink.headline}>Check your email.</Text>
+        <Text style={otpScreen.headline}>Check your email.</Text>
 
-        <Text style={magicLink.subtext}>
-          {'I sent a sign-in link to '}
-          <Text style={magicLink.emailHighlight}>{email}</Text>
-          {'. Tap it to finish setting up.'}
+        <Text style={otpScreen.subtext}>
+          {'We sent an 8-digit code to '}
+          <Text style={otpScreen.emailHighlight}>{email}</Text>
+          {'. Enter it below.'}
         </Text>
 
-        <View style={magicLink.links}>
+        <TextInput
+          style={otpScreen.input}
+          value={code}
+          onChangeText={(val) => { setCode(val.replace(/[^0-9]/g, '')); setError(''); }}
+          keyboardType="number-pad"
+          maxLength={8}
+          placeholder="00000000"
+          placeholderTextColor="#CCCCCC"
+          autoFocus
+          textAlign="center"
+        />
+
+        {error ? <Text style={otpScreen.error}>{error}</Text> : null}
+
+        <TouchableOpacity
+          style={[otpScreen.button, { backgroundColor: canSubmit && !isVerifying ? '#0F6E56' : '#8CB5A8' }]}
+          activeOpacity={0.85}
+          disabled={!canSubmit || isVerifying}
+          onPress={handleVerify}
+        >
+          <Text style={otpScreen.buttonText}>{isVerifying ? 'Verifying…' : 'Verify code'}</Text>
+        </TouchableOpacity>
+
+        <View style={otpScreen.links}>
           {canResend && (
-            <TouchableOpacity onPress={() => {}} activeOpacity={0.7}>
-              <Text style={magicLink.resendLink}>Resend link</Text>
+            <TouchableOpacity onPress={handleResend} disabled={isResending} activeOpacity={0.7}>
+              <Text style={otpScreen.resendLink}>{isResending ? 'Sending…' : 'Resend code'}</Text>
             </TouchableOpacity>
           )}
-
           <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7}>
-            <Text style={magicLink.backLink}>Wrong email? Go back</Text>
+            <Text style={otpScreen.backLink}>Wrong email? Go back</Text>
           </TouchableOpacity>
         </View>
-
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1803,14 +1853,13 @@ const dogAge = StyleSheet.create({
   },
 });
 
-// ─── Styles: Magic Link ───────────────────────────────────────────────────────
+// ─── Styles: OTP Screen ───────────────────────────────────────────────────────
 
-const magicLink = StyleSheet.create({
+const otpScreen = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
-    alignItems: 'center',
     paddingHorizontal: 36,
   },
   content: {
@@ -1837,6 +1886,36 @@ const magicLink = StyleSheet.create({
   emailHighlight: {
     color: '#333333',
     fontWeight: '600',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#111111',
+    backgroundColor: '#F7F7F7',
+    width: '100%',
+    letterSpacing: 8,
+  },
+  error: {
+    fontSize: 13,
+    color: '#DC2626',
+    textAlign: 'center',
+  },
+  button: {
+    borderRadius: 50,
+    paddingVertical: 18,
+    alignItems: 'center',
+    width: '100%',
+  },
+  buttonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
   links: {
     alignItems: 'center',
