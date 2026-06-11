@@ -788,6 +788,7 @@ function CheckInScreen({ navigation, route }) {
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
+    console.log('[CheckIn] saveCheckIn called — dog_id:', dogId, '| treatmentActive:', treatmentActive, '| classification:', inputClassification);
     if (!userId || !dogId || !familyMemberId) {
       console.log('[CheckIn] missing IDs, skipping save:', { userId, dogId, familyMemberId });
       return null;
@@ -854,14 +855,18 @@ function CheckInScreen({ navigation, route }) {
 
   const getActiveTreatment = async (dogId) => {
     try {
+      console.log('[HealthEvent] getActiveTreatment — querying dog_id:', dogId);
       const { data, error } = await supabase
         .from('health_events')
-        .select('health_event_id')
+        .select('health_event_id, treatment_active')
         .eq('dog_id', dogId)
         .eq('treatment_active', true)
         .limit(1);
+      console.log('[HealthEvent] getActiveTreatment — raw response: data:', JSON.stringify(data), '| error:', JSON.stringify(error));
       if (error) { console.log('[HealthEvent] getActiveTreatment error:', error); return false; }
-      return !!(data && data.length > 0);
+      const result = !!(data && data.length > 0);
+      console.log('[HealthEvent] getActiveTreatment — returning:', result);
+      return result;
     } catch (err) {
       console.log('[HealthEvent] getActiveTreatment error:', err);
       return false;
