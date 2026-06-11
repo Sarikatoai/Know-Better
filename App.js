@@ -784,7 +784,7 @@ function CheckInScreen({ navigation, route }) {
     }
   }, [recordingState]);
 
-  const saveCheckIn = async (blob, mimeType, transcriptionText, inputClassification = 'irrelevant') => {
+  const saveCheckIn = async (blob, mimeType, transcriptionText, inputClassification = 'irrelevant', treatmentActive = false) => {
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
@@ -817,7 +817,7 @@ function CheckInScreen({ navigation, route }) {
           check_in_text: transcriptionText,
           transcription_status: 'completed',
           input_classification: inputClassification,
-          contributed_to_baseline: inputClassification === 'normal' || inputClassification === 'concerning' ? 'yes' : inputClassification === 'health_event' ? 'partial' : 'no',
+          contributed_to_baseline: inputClassification === 'health_event' ? 'partial' : (inputClassification === 'normal' || inputClassification === 'concerning') ? (treatmentActive ? 'partial' : 'yes') : 'no',
         })
         .select('check_in_id')
         .single();
@@ -849,6 +849,110 @@ function CheckInScreen({ navigation, route }) {
       else console.log('[Response] saved');
     } catch (err) {
       console.log('[Response] error:', err);
+    }
+  };
+
+  const getActiveTreatment = async (dogId) => {
+    try {
+      const { data, error } = await supabase
+        .from('health_events')
+        .select('health_event_id')
+        .eq('dog_id', dogId)
+        .eq('treatment_active', true)
+        .limit(1);
+      if (error) { console.log('[HealthEvent] getActiveTreatment error:', error); return false; }
+      return !!(data && data.length > 0);
+    } catch (err) {
+      console.log('[HealthEvent] getActiveTreatment error:', err);
+      return false;
+    }
+  };
+
+  const extractHealthEvent = async (transcriptionText, checkInId, dogId, familyMemberId) => {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 256,
+          system: `You are analyzing a dog owner's check-in that mentions a significant medical event. Extract the following and return as JSON only:
+{ "event_title": "brief title of the event", "event_type": "critical, medium, or low", "event_description": "what happened in plain language", "treatment_active": true }
+event_type guide: critical = surgery, hospitalization, serious diagnosis. medium = vet visit, new medication, minor procedure. low = routine checkup, vaccination.`,
+          messages: [{ role: 'user', content: transcriptionText }],
+        }),
+      });
+      const data = await response.json();
+      const rawText = data.content?.[0]?.text ?? '';
+      const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+      const extracted = JSON.parse(cleaned);
+      console.log('[HealthEvent] extracted:', JSON.stringify(extracted));
+
+      const today = new Date().toISOString().split('T')[0];
+      const { error } = await supabase.from('health_events').insert({
+        dog_id: dogId,
+        family_member_id: familyMemberId,
+        event_title: extracted.event_title,
+        event_description: extracted.event_description,
+        event_type: extracted.event_type,
+        treatment_active: true,
+        event_date: today,
+        pattern_engine_context: { reason: 'health event detected', classification: 'health_event' },
+      });
+      if (error) console.log('[HealthEvent] insert error:', error);
+      else console.log('[HealthEvent] saved:', extracted.event_title);
+    } catch (err) {
+      console.log('[HealthEvent] error:', err);
+    }
+  };
+
+  const checkTreatmentWindowClose = async (dogId) => {
+    try {
+      const { data: activeEvents } = await supabase
+        .from('health_events')
+        .select('health_event_id')
+        .eq('dog_id', dogId)
+        .eq('treatment_active', true)
+        .limit(1);
+      if (!activeEvents || activeEvents.length === 0) return;
+
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: recent } = await supabase
+        .from('check_ins')
+        .select('input_classification, created_at')
+        .eq('dog_id', dogId)
+        .in('contributed_to_baseline', ['yes', 'partial'])
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
+      if (!recent || recent.length === 0) return;
+
+      const dayMap = {};
+      for (const row of recent) {
+        const day = row.created_at.split('T')[0];
+        if (!dayMap[day]) dayMap[day] = [];
+        dayMap[day].push(row);
+      }
+      const days = Object.keys(dayMap).sort().reverse();
+      if (days.length < 2) return;
+
+      const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning');
+      if (isDayConcerning(dayMap[days[0]]) || isDayConcerning(dayMap[days[1]])) return;
+
+      const today = new Date().toISOString().split('T')[0];
+      const { error } = await supabase
+        .from('health_events')
+        .update({ treatment_active: false, event_end_date: today })
+        .eq('dog_id', dogId)
+        .eq('treatment_active', true);
+      if (error) console.log('[HealthEvent] close window error:', error);
+      else console.log('[HealthEvent] two consecutive normal days — closing treatment window');
+    } catch (err) {
+      console.log('[HealthEvent] checkTreatmentWindowClose error:', err);
     }
   };
 
@@ -970,7 +1074,7 @@ function CheckInScreen({ navigation, route }) {
     }
   };
 
-  const detectDeviation = async (dogId, checkInId) => {
+  const detectDeviation = async (dogId, checkInId, treatmentActive = false) => {
     try {
       const { data, error } = await supabase
         .from('baselines')
@@ -999,12 +1103,19 @@ function CheckInScreen({ navigation, route }) {
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
-      // Consecutive concerning days rule
+      // Consecutive concerning days rule (relaxed thresholds during active treatment)
       const ccd = b.consecutive_concerning_days ?? 0;
       let alertLevel = null;
-      if (ccd >= 5) alertLevel = 3;
-      else if (ccd >= 3) alertLevel = 2;
-      else if (ccd >= 2) alertLevel = 1;
+      if (treatmentActive) {
+        console.log('[HealthEvent] treatment context active — using relaxed thresholds');
+        if (ccd >= 5) alertLevel = 3;
+        else if (ccd >= 3) alertLevel = 2;
+        else if (ccd >= 4) alertLevel = 1;
+      } else {
+        if (ccd >= 5) alertLevel = 3;
+        else if (ccd >= 3) alertLevel = 2;
+        else if (ccd >= 2) alertLevel = 1;
+      }
       console.log('[Deviation] consecutive_concerning_days:', ccd, '→ alertLevel:', alertLevel);
 
       // Combination rule
@@ -1272,12 +1383,19 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         if (result.text) {
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
-          const checkInId = await saveCheckIn(blob, blob.type, result.text, classification);
+          const treatmentActive = await getActiveTreatment(dogIdRef.current);
+          const checkInId = await saveCheckIn(blob, blob.type, result.text, classification, treatmentActive);
+          if (classification === 'health_event') {
+            extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
+          }
           if (classification === 'concerning' || classification === 'health_event') {
             extractSignals(result.text, checkInId, dogIdRef.current);
           }
           await calculateBaseline(dogIdRef.current);
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
+          if (classification !== 'health_event') {
+            await checkTreatmentWindowClose(dogIdRef.current);
+          }
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
@@ -1322,12 +1440,19 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         if (result.text) {
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
-          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification);
+          const treatmentActive = await getActiveTreatment(dogIdRef.current);
+          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification, treatmentActive);
+          if (classification === 'health_event') {
+            extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
+          }
           if (classification === 'concerning' || classification === 'health_event') {
             extractSignals(result.text, checkInId, dogIdRef.current);
           }
           await calculateBaseline(dogIdRef.current);
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId);
+          if (classification !== 'health_event') {
+            await checkTreatmentWindowClose(dogIdRef.current);
+          }
+          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
         }
       } catch (err) {
