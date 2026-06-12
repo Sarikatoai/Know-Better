@@ -691,6 +691,12 @@ function CongratulationsScreen({ navigation, route }) {
 
 // ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
 
+const ALERT_BANNER_CONFIG = {
+  1: { bg: '#FFF8E1', text: 'I noticed a pattern', color: '#F59E0B' },
+  2: { bg: '#FFF3E0', text: 'Worth mentioning to your vet', color: '#EA580C' },
+  3: { bg: '#FEF2F2', text: 'Contact your vet today', color: '#DC2626' },
+};
+
 function CheckInScreen({ navigation, route }) {
   const { userName: paramUserName, dogName: paramDogName } = route.params ?? {};
   const [userName, setUserName] = useState(paramUserName ?? '');
@@ -698,6 +704,7 @@ function CheckInScreen({ navigation, route }) {
   const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
   const [transcription, setTranscription] = useState('');
   const [claudeResponse, setClaudeResponse] = useState('');
+  const [activeAlertLevel, setActiveAlertLevel] = useState(null);
   const [isClaudeLoading, setIsClaudeLoading] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -1165,6 +1172,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
   const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0) => {
     setIsClaudeLoading(true);
     setClaudeResponse('');
+    setActiveAlertLevel(null);
     const name = dogName || 'your dog';
     let systemPrompt;
     if (alertLevel === 3) {
@@ -1201,6 +1209,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       if (data.content?.[0]?.text) {
         const responseText = data.content[0].text;
         setClaudeResponse(responseText);
+        setActiveAlertLevel(alertLevel);
         saveResponse(checkInId, responseText);
       }
     } catch (err) {
@@ -1542,8 +1551,21 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             )}
 
             {!!claudeResponse && !isClaudeLoading && (
-              <View style={checkIn.claudeCard}>
-                <Text style={checkIn.claudeText}>{claudeResponse}</Text>
+              <View style={{ width: '100%', marginTop: 12 }}>
+                {activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && (
+                  <View style={[checkIn.alertBanner, { backgroundColor: ALERT_BANNER_CONFIG[activeAlertLevel].bg }]}>
+                    <Text style={[checkIn.alertBannerText, { color: ALERT_BANNER_CONFIG[activeAlertLevel].color }]}>
+                      {ALERT_BANNER_CONFIG[activeAlertLevel].text}
+                    </Text>
+                  </View>
+                )}
+                <View style={[
+                  checkIn.claudeCard,
+                  { marginTop: 0 },
+                  activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && { borderTopLeftRadius: 0, borderTopRightRadius: 0 },
+                ]}>
+                  <Text style={checkIn.claudeText}>{claudeResponse}</Text>
+                </View>
               </View>
             )}
           </>
@@ -2784,6 +2806,18 @@ const checkIn = StyleSheet.create({
     fontSize: 16,
     color: '#222222',
     lineHeight: 24,
+  },
+  alertBanner: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  alertBannerText: {
+    fontWeight: 'bold',
+    fontSize: 14,
+    textAlign: 'center',
   },
   claudeCard: {
     backgroundColor: '#FFFFFF',
