@@ -1575,7 +1575,477 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       <TouchableOpacity onPress={handleSignOut} activeOpacity={0.6}>
         <Text style={checkIn.signOutLink}>Sign out</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => navigation.navigate('Report', { dogId: dogIdRef.current, dogName })}
+        activeOpacity={0.6}
+      >
+        <Text style={checkIn.reportLink}>View vet report</Text>
+      </TouchableOpacity>
     </View>
+  );
+}
+
+// ─── Vet Report ──────────────────────────────────────────────────────────────
+
+const ALERT_LEVEL_NUM = { level_1: 1, level_2: 2, level_3: 3 };
+
+const SIGNAL_LABELS = {
+  appetite: 'Appetite',
+  energy: 'Energy',
+  elimination: 'Elimination',
+  water_intake: 'Water',
+  demeanor: 'Demeanor',
+  vomiting: 'Vomiting',
+};
+
+const SIGNAL_ICONS = {
+  appetite: 'food-drumstick-outline',
+  energy: 'lightning-bolt-outline',
+  elimination: 'toilet',
+  water_intake: 'cup-water',
+  demeanor: 'emoticon-outline',
+  vomiting: 'emoticon-sick-outline',
+};
+
+const STATUS_HERO_CONFIG = {
+  all_clear: { bg: '#0F6E56', icon: 'check-circle-outline', label: 'Looking good' },
+  mostly_normal: { bg: '#F59E0B', icon: 'weather-partly-cloudy', label: 'Looking good' },
+  patterns_noted: { bg: '#EA580C', icon: 'alert-circle-outline', label: 'Worth a look' },
+  alert_fired: { bg: '#DC2626', icon: 'alert-octagon-outline', label: 'Mention to your vet' },
+};
+
+const ALERT_PILL_COLORS = { 1: '#F59E0B', 2: '#EA580C', 3: '#DC2626' };
+
+const DOT_SIZE = 30;
+
+const getDayDotStyle = (day) => {
+  switch (day.status) {
+    case 'normal': return { backgroundColor: '#0F6E56' };
+    case 'concerning': return { backgroundColor: '#F59E0B' };
+    case 'alert': return { backgroundColor: ALERT_PILL_COLORS[day.alert_level] ?? '#EA580C' };
+    case 'health_event': return { backgroundColor: 'transparent', borderWidth: 2, borderColor: '#D1D5DB' };
+    default: return { backgroundColor: '#EDEDED' };
+  }
+};
+
+// Chunks days into 7-day weeks anchored to the end of the period, so the
+// most recent week is always full and any partial week falls at the start.
+const chunkIntoWeeks = (days) => {
+  const weeks = [];
+  let end = days.length;
+  while (end > 0) {
+    const start = Math.max(0, end - 7);
+    weeks.unshift(days.slice(start, end));
+    end = start;
+  }
+  return weeks;
+};
+
+const CAPTION_BY_STATUS = {
+  all_clear: (name, normalDays, totalDays) =>
+    `I've been keeping an eye on ${name}, and the last ${totalDays} days have been steady and normal.`,
+  mostly_normal: (name, normalDays, totalDays) =>
+    `${name} has mostly been doing well this period, with just a day or two that seemed a little off.`,
+  patterns_noted: (name, normalDays, totalDays) =>
+    `I've noticed a pattern with ${name} worth mentioning to your vet at your next visit.`,
+  alert_fired: (name, normalDays, totalDays) =>
+    `I reached out during this period because something about ${name} seemed worth your vet's attention.`,
+};
+
+const buildCaption = (overallStatus, dogName, normalDayCount, totalDays) => {
+  const name = dogName || 'your dog';
+  const fn = CAPTION_BY_STATUS[overallStatus] ?? CAPTION_BY_STATUS.all_clear;
+  return fn(name, normalDayCount, totalDays);
+};
+
+const formatShortDate = (dateStr) => {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+const describeSignalsPlainly = (signals) => {
+  if (!signals) return null;
+  const parts = [];
+  for (const dim of SIGNAL_DIMS) {
+    const val = signals[dim];
+    if (!val || val === 'null' || val === 'normal' || val === 'none') continue;
+    parts.push(`${SIGNAL_LABELS[dim]} was ${val}.`);
+  }
+  return parts.length > 0 ? parts.join(' ') : null;
+};
+
+const describeDayPlainly = (day) => {
+  if (day.status === 'none') return 'No check-in this day.';
+  const parts = [];
+  if (day.health_event_title) parts.push(`Health event: ${day.health_event_title}.`);
+  if (day.status === 'alert' && day.alert_reason) parts.push(day.alert_reason);
+  const signalText = describeSignalsPlainly(day.signals);
+  if (signalText) parts.push(signalText);
+  if (parts.length === 0) parts.push('Normal day — no concerns noted.');
+  return parts.join(' ');
+};
+
+const generateVetReport = async (dogId, periodDays = 30) => {
+  const periodStartDate = new Date(Date.now() - (periodDays - 1) * 24 * 60 * 60 * 1000);
+  const period_start = periodStartDate.toISOString().split('T')[0];
+  const period_end = new Date().toISOString().split('T')[0];
+  const sinceIso = `${period_start}T00:00:00.000Z`;
+  const dayKey = (iso) => iso.split('T')[0];
+
+  const [checkInsRes, signalsRes, alertsRes, healthEventsRes] = await Promise.all([
+    supabase.from('check_ins').select('check_in_id, input_classification, check_in_text, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
+    supabase.from('signals').select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at').eq('dog_id', dogId).gte('created_at', sinceIso),
+    supabase.from('alerts').select('alert_level, alert_trigger_reason, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
+    supabase.from('health_events').select('event_title, event_type, event_date').eq('dog_id', dogId).gte('event_date', period_start).order('event_date', { ascending: true }),
+  ]);
+
+  const checkIns = checkInsRes.data ?? [];
+  const signalRows = signalsRes.data ?? [];
+  const alertRows = alertsRes.data ?? [];
+  const healthEventRows = healthEventsRes.data ?? [];
+
+  const groupByDay = (rows, dateField) => {
+    const map = {};
+    for (const row of rows) {
+      const day = dateField === 'event_date' ? row.event_date : dayKey(row.created_at);
+      if (!map[day]) map[day] = [];
+      map[day].push(row);
+    }
+    return map;
+  };
+  const checkInsByDay = groupByDay(checkIns, 'created_at');
+  const signalsByDay = groupByDay(signalRows, 'created_at');
+  const alertsByDay = groupByDay(alertRows, 'created_at');
+  const healthEventsByDay = groupByDay(healthEventRows, 'event_date');
+
+  const days = [];
+  const signal_concerning_counts = { appetite: 0, energy: 0, water_intake: 0, demeanor: 0, vomiting: 0, elimination: 0 };
+  let normal_day_count = 0;
+  let concerning_day_count = 0;
+
+  for (let i = 0; i < periodDays; i++) {
+    const day = new Date(periodStartDate.getTime() + i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const dayCheckIns = checkInsByDay[day] ?? [];
+    const dayAlerts = alertsByDay[day] ?? [];
+    const dayHealthEvents = healthEventsByDay[day] ?? [];
+    const daySignalRows = signalsByDay[day] ?? [];
+
+    const isConcerning = dayCheckIns.some(c => c.input_classification === 'concerning');
+    const hasCheckIn = dayCheckIns.length > 0;
+
+    let status;
+    if (dayAlerts.length > 0) status = 'alert';
+    else if (isConcerning) status = 'concerning';
+    else if (dayHealthEvents.length > 0) status = 'health_event';
+    else if (hasCheckIn) status = 'normal';
+    else status = 'none';
+
+    if (status === 'normal') normal_day_count++;
+    if (status === 'concerning' || status === 'alert') concerning_day_count++;
+
+    const daySignals = {};
+    for (const dim of SIGNAL_DIMS) {
+      const values = daySignalRows.map(r => r[dim]).filter(v => v != null && v !== 'null');
+      daySignals[dim] = values.length > 0 ? values[values.length - 1] : null;
+      if (isLowSignal(dim, values)) signal_concerning_counts[dim]++;
+    }
+
+    days.push({
+      date: day,
+      status,
+      signals: daySignalRows.length > 0 ? daySignals : null,
+      alert_level: dayAlerts[0] ? (ALERT_LEVEL_NUM[dayAlerts[0].alert_level] ?? 1) : null,
+      alert_reason: dayAlerts[0]?.alert_trigger_reason ?? null,
+      health_event_title: dayHealthEvents[0]?.event_title ?? null,
+      check_in_text: dayCheckIns[dayCheckIns.length - 1]?.check_in_text ?? null,
+    });
+  }
+
+  const alerts = alertRows.map(a => ({
+    date: dayKey(a.created_at),
+    level: ALERT_LEVEL_NUM[a.alert_level] ?? 1,
+    reason: a.alert_trigger_reason,
+  }));
+  const health_events = healthEventRows.map(h => ({
+    date: h.event_date,
+    title: h.event_title,
+    type: h.event_type,
+  }));
+
+  let overall_status;
+  if (alerts.length > 0) overall_status = 'alert_fired';
+  else if (concerning_day_count >= 3 || health_events.length > 0) overall_status = 'patterns_noted';
+  else if (concerning_day_count >= 1) overall_status = 'mostly_normal';
+  else overall_status = 'all_clear';
+
+  const summary_data = {
+    period_start,
+    period_end,
+    total_days: periodDays,
+    normal_day_count,
+    concerning_day_count,
+    days,
+    signal_concerning_counts,
+    alerts,
+    health_events,
+  };
+
+  const { data: inserted, error } = await supabase
+    .from('vet_reports')
+    .insert({ dog_id: dogId, period_start, period_end, overall_status, summary_data })
+    .select('report_id, dog_id, period_start, period_end, overall_status, summary_data, generated_at')
+    .single();
+  if (error) {
+    console.log('[VetReport] insert error:', error);
+    return { report_id: null, dog_id: dogId, period_start, period_end, overall_status, summary_data, generated_at: new Date().toISOString() };
+  }
+  console.log('[VetReport] generated and saved — overall_status:', overall_status);
+  return inserted;
+};
+
+function ReportScreen({ navigation, route }) {
+  const { dogId: paramDogId, dogName: paramDogName, reportId } = route.params ?? {};
+  const [dogId, setDogId] = useState(paramDogId ?? null);
+  const [dogName, setDogName] = useState(paramDogName ?? '');
+  const [report, setReport] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [expandedItem, setExpandedItem] = useState(null);
+  const [weekIndex, setWeekIndex] = useState(null);
+
+  useEffect(() => {
+    const load = async () => {
+      setIsLoading(true);
+      let resolvedDogId = paramDogId ?? null;
+      if (!resolvedDogId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: dogResult } = await supabase.from('dogs').select('dog_id, dog_name').eq('owner_id', session.user.id).limit(1).single();
+          resolvedDogId = dogResult?.dog_id ?? null;
+          setDogId(resolvedDogId);
+          if (dogResult?.dog_name) setDogName(dogResult.dog_name);
+        }
+      }
+      if (!resolvedDogId) { setIsLoading(false); return; }
+
+      if (reportId) {
+        const { data, error } = await supabase
+          .from('vet_reports')
+          .select('report_id, dog_id, period_start, period_end, overall_status, summary_data, generated_at')
+          .eq('report_id', reportId)
+          .single();
+        if (error) console.log('[Report] load error:', error);
+        setReport(data ?? null);
+      } else {
+        const generated = await generateVetReport(resolvedDogId, 30);
+        setReport(generated);
+      }
+      setIsLoading(false);
+    };
+    load();
+  }, [reportId]);
+
+  if (isLoading) {
+    return (
+      <View style={report_.loadingContainer}>
+        <Text style={report_.loadingText}>Building report…</Text>
+      </View>
+    );
+  }
+
+  if (!report) {
+    return (
+      <View style={report_.loadingContainer}>
+        <Text style={report_.loadingText}>No report available yet.</Text>
+      </View>
+    );
+  }
+
+  const { summary_data, overall_status } = report;
+  const hero = STATUS_HERO_CONFIG[overall_status] ?? STATUS_HERO_CONFIG.all_clear;
+  const caption = buildCaption(overall_status, dogName, summary_data.normal_day_count, summary_data.total_days);
+
+  const weeks = chunkIntoWeeks(summary_data.days);
+  const activeWeekIndex = weekIndex === null ? weeks.length - 1 : weekIndex;
+  const currentWeek = weeks[activeWeekIndex] ?? [];
+  const weekRangeLabel = currentWeek.length > 0
+    ? `${formatShortDate(currentWeek[0].date)} – ${formatShortDate(currentWeek[currentWeek.length - 1].date)}`
+    : '';
+  const goToPrevWeek = () => setWeekIndex(Math.max(0, activeWeekIndex - 1));
+  const goToNextWeek = () => setWeekIndex(Math.min(weeks.length - 1, activeWeekIndex + 1));
+
+  return (
+    <ScrollView style={report_.container} contentContainerStyle={report_.content}>
+      <View style={[report_.hero, { backgroundColor: hero.bg }]}>
+        <MaterialCommunityIcons name={hero.icon} size={48} color="#FFFFFF" />
+        <Text style={report_.heroLabel}>{hero.label}</Text>
+      </View>
+
+      <View style={report_.dayCountBlock}>
+        <Text style={report_.dayCountNumber}>{summary_data.normal_day_count} / {summary_data.total_days}</Text>
+        <Text style={report_.dayCountLabel}>normal days</Text>
+      </View>
+
+      <Text style={report_.weekLabel}>{weekRangeLabel}</Text>
+      <View style={report_.weekRow}>
+        <TouchableOpacity
+          onPress={goToPrevWeek}
+          disabled={activeWeekIndex === 0}
+          activeOpacity={0.6}
+          style={report_.weekArrow}
+        >
+          <MaterialCommunityIcons name="chevron-left" size={26} color={activeWeekIndex === 0 ? '#DDDDDD' : '#0F6E56'} />
+        </TouchableOpacity>
+
+        <View style={report_.dotsRow}>
+          {currentWeek.map((day) => (
+            <TouchableOpacity
+              key={day.date}
+              style={[report_.dot, getDayDotStyle(day)]}
+              activeOpacity={0.7}
+              onPress={() => setSelectedDay(day)}
+            />
+          ))}
+        </View>
+
+        <TouchableOpacity
+          onPress={goToNextWeek}
+          disabled={activeWeekIndex === weeks.length - 1}
+          activeOpacity={0.6}
+          style={report_.weekArrow}
+        >
+          <MaterialCommunityIcons name="chevron-right" size={26} color={activeWeekIndex === weeks.length - 1 ? '#DDDDDD' : '#0F6E56'} />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={report_.weekPageIndicator}>Week {activeWeekIndex + 1} of {weeks.length}</Text>
+
+      {selectedDay && (
+        <View style={report_.popover}>
+          <View style={report_.popoverHeader}>
+            <Text style={report_.popoverDate}>{formatShortDate(selectedDay.date)}</Text>
+            <TouchableOpacity onPress={() => setSelectedDay(null)} activeOpacity={0.6}>
+              <MaterialCommunityIcons name="close" size={18} color="#888888" />
+            </TouchableOpacity>
+          </View>
+          <Text style={report_.popoverText}>{describeDayPlainly(selectedDay)}</Text>
+        </View>
+      )}
+
+      <View style={report_.signalGrid}>
+        {SIGNAL_DIMS.map((dim) => {
+          const count = summary_data.signal_concerning_counts[dim] ?? 0;
+          const dotColor = count === 0 ? '#0F6E56' : count <= 2 ? '#F59E0B' : '#EA580C';
+          return (
+            <View key={dim} style={report_.signalTile}>
+              <View style={report_.signalIconWrap}>
+                <MaterialCommunityIcons name={SIGNAL_ICONS[dim]} size={26} color="#1A3C34" />
+                <View style={[report_.signalDot, { backgroundColor: dotColor }]} />
+              </View>
+              <Text style={report_.signalLabel}>{SIGNAL_LABELS[dim]}</Text>
+              {count > 0 && (
+                <View style={report_.signalBadge}>
+                  <Text style={report_.signalBadgeText}>{count}</Text>
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {(summary_data.alerts.length > 0 || summary_data.health_events.length > 0) && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={report_.pillStrip}>
+          {summary_data.alerts.map((a, i) => (
+            <TouchableOpacity
+              key={`alert-${i}`}
+              style={[report_.pill, { backgroundColor: ALERT_PILL_COLORS[a.level] ?? '#F59E0B' }]}
+              activeOpacity={0.7}
+              onPress={() => setExpandedItem({ type: 'alert', ...a })}
+            >
+              <Text style={report_.pillText}>{formatShortDate(a.date)}</Text>
+            </TouchableOpacity>
+          ))}
+          {summary_data.health_events.map((h, i) => (
+            <TouchableOpacity
+              key={`event-${i}`}
+              style={[report_.pill, { backgroundColor: '#9CA3AF' }]}
+              activeOpacity={0.7}
+              onPress={() => setExpandedItem({ type: 'health_event', ...h })}
+            >
+              <Text style={report_.pillText}>{formatShortDate(h.date)}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {expandedItem && (
+        <Text style={report_.expandedDetail}>
+          {expandedItem.type === 'alert' ? expandedItem.reason : `${expandedItem.title} (${expandedItem.type})`}
+        </Text>
+      )}
+
+      <Text style={report_.caption}>{caption}</Text>
+
+      <TouchableOpacity onPress={() => navigation.navigate('ReportHistory', { dogId, dogName })} activeOpacity={0.7}>
+        <Text style={report_.historyLink}>View past reports</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+function ReportHistoryScreen({ navigation, route }) {
+  const { dogId: paramDogId, dogName } = route.params ?? {};
+  const [reports, setReports] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      let dogId = paramDogId ?? null;
+      if (!dogId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: dogResult } = await supabase.from('dogs').select('dog_id').eq('owner_id', session.user.id).limit(1).single();
+          dogId = dogResult?.dog_id ?? null;
+        }
+      }
+      if (!dogId) { setIsLoading(false); return; }
+      const { data, error } = await supabase
+        .from('vet_reports')
+        .select('report_id, period_start, period_end, overall_status, generated_at')
+        .eq('dog_id', dogId)
+        .order('generated_at', { ascending: false });
+      if (error) console.log('[ReportHistory] query error:', error);
+      setReports(data ?? []);
+      setIsLoading(false);
+    };
+    load();
+  }, []);
+
+  return (
+    <ScrollView style={reportHistory.container} contentContainerStyle={reportHistory.content}>
+      <Text style={reportHistory.title}>Report history</Text>
+      {isLoading && <Text style={reportHistory.empty}>Loading…</Text>}
+      {!isLoading && reports.length === 0 && <Text style={reportHistory.empty}>No reports yet.</Text>}
+      {reports.map((r) => {
+        const hero = STATUS_HERO_CONFIG[r.overall_status] ?? STATUS_HERO_CONFIG.all_clear;
+        return (
+          <TouchableOpacity
+            key={r.report_id}
+            style={reportHistory.row}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('Report', { reportId: r.report_id, dogId: paramDogId, dogName })}
+          >
+            <View style={[reportHistory.dot, { backgroundColor: hero.bg }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={reportHistory.rowDate}>{formatShortDate(r.period_start)} – {formatShortDate(r.period_end)}</Text>
+              <Text style={reportHistory.rowStatus}>{hero.label}</Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#CCCCCC" />
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -1802,6 +2272,8 @@ export default function App() {
         <Stack.Screen name="SignIn" component={SignInScreen} />
         <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
+        <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerTitle: 'Report History' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -2843,5 +3315,242 @@ const checkIn = StyleSheet.create({
     color: '#CCCCCC',
     textAlign: 'center',
     paddingVertical: 4,
+  },
+  reportLink: {
+    fontSize: 13,
+    color: '#0F6E56',
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+});
+
+const report_ = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  content: {
+    paddingBottom: 48,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    fontSize: 15,
+    color: '#888888',
+  },
+  hero: {
+    width: '100%',
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  heroLabel: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  dayCountBlock: {
+    alignItems: 'center',
+    paddingTop: 36,
+    paddingBottom: 28,
+  },
+  dayCountNumber: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: '#1A3C34',
+    letterSpacing: -0.5,
+  },
+  dayCountLabel: {
+    fontSize: 14,
+    color: '#888888',
+    marginTop: 4,
+  },
+  weekLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#888888',
+    textAlign: 'center',
+  },
+  weekRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    paddingHorizontal: 12,
+  },
+  weekArrow: {
+    padding: 8,
+  },
+  dotsRow: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+  },
+  dot: {
+    width: DOT_SIZE,
+    height: DOT_SIZE,
+    borderRadius: DOT_SIZE / 2,
+  },
+  weekPageIndicator: {
+    fontSize: 12,
+    color: '#AAAAAA',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  popover: {
+    marginHorizontal: 24,
+    marginTop: 16,
+    backgroundColor: '#F7F7F7',
+    borderRadius: 12,
+    padding: 14,
+  },
+  popoverHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  popoverDate: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1A3C34',
+  },
+  popoverText: {
+    fontSize: 13,
+    color: '#444444',
+    lineHeight: 19,
+  },
+  signalGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 24,
+    marginTop: 32,
+  },
+  signalTile: {
+    width: '33.33%',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  signalIconWrap: {
+    position: 'relative',
+  },
+  signalDot: {
+    position: 'absolute',
+    bottom: -2,
+    right: -4,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
+  },
+  signalLabel: {
+    fontSize: 11,
+    color: '#666666',
+    marginTop: 6,
+  },
+  signalBadge: {
+    marginTop: 4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#1A3C34',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  signalBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  pillStrip: {
+    marginTop: 8,
+    paddingLeft: 24,
+  },
+  pill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    marginRight: 8,
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  expandedDetail: {
+    marginTop: 10,
+    marginHorizontal: 24,
+    fontSize: 13,
+    color: '#444444',
+    lineHeight: 19,
+  },
+  caption: {
+    marginTop: 32,
+    marginHorizontal: 24,
+    fontSize: 15,
+    color: '#1A3C34',
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  historyLink: {
+    marginTop: 20,
+    fontSize: 13,
+    color: '#0F6E56',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+});
+
+const reportHistory = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 48,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A3C34',
+    marginBottom: 16,
+  },
+  empty: {
+    fontSize: 14,
+    color: '#888888',
+    textAlign: 'center',
+    marginTop: 24,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    gap: 12,
+  },
+  dot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  rowDate: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1A3C34',
+  },
+  rowStatus: {
+    fontSize: 13,
+    color: '#888888',
+    marginTop: 2,
   },
 });
