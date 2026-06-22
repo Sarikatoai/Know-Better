@@ -1524,7 +1524,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 isProcessing && checkIn.micButtonProcessing,
                 { transform: [{ scale: pulse }] },
               ]}>
-                <Text style={checkIn.micEmoji}>🎙️</Text>
+                <MaterialCommunityIcons name="microphone" size={38} color="#FFFFFF" />
               </Animated.View>
             </TouchableOpacity>
 
@@ -1878,7 +1878,7 @@ function ReportScreen({ navigation, route }) {
   return (
     <ScrollView style={report_.container} contentContainerStyle={report_.content}>
       <View style={[report_.hero, { backgroundColor: hero.bg }]}>
-        <MaterialCommunityIcons name={hero.icon} size={48} color="#FFFFFF" />
+        <MaterialCommunityIcons name={hero.icon} size={24} color="#FFFFFF" />
         <Text style={report_.heroLabel}>{hero.label}</Text>
       </View>
 
@@ -1945,7 +1945,7 @@ function ReportScreen({ navigation, route }) {
               </View>
               <Text style={report_.signalLabel}>{SIGNAL_LABELS[dim]}</Text>
               {count > 0 && (
-                <View style={report_.signalBadge}>
+                <View style={[report_.signalBadge, { backgroundColor: dotColor }]}>
                   <Text style={report_.signalBadgeText}>{count}</Text>
                 </View>
               )}
@@ -3244,9 +3244,6 @@ const checkIn = StyleSheet.create({
     backgroundColor: '#AAAAAA',
     shadowColor: '#AAAAAA',
   },
-  micEmoji: {
-    fontSize: 38,
-  },
   listening: {
     fontSize: 15,
     fontStyle: 'italic',
@@ -3344,13 +3341,13 @@ const report_ = StyleSheet.create({
   },
   hero: {
     width: '100%',
-    paddingVertical: 40,
+    paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 6,
   },
   heroLabel: {
-    fontSize: 22,
+    fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
   },
