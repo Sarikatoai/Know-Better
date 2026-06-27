@@ -1,5 +1,6 @@
 import { supabase } from './lib/supabase';
 import BurgerMenu from './components/BurgerMenu';
+import DogSelectionScreen from './screens/DogSelectionScreen';
 import { Audio } from 'expo-av';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -11,6 +12,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Alert,
   Animated,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -699,9 +701,11 @@ const ALERT_BANNER_CONFIG = {
 };
 
 function CheckInScreen({ navigation, route }) {
-  const { userName: paramUserName, dogName: paramDogName } = route.params ?? {};
+  const { userName: paramUserName, dogName: paramDogName, dogId: paramDogId, dogPhotoUrl: paramDogPhotoUrl } = route.params ?? {};
   const [userName, setUserName] = useState(paramUserName ?? '');
   const [dogName, setDogName] = useState(paramDogName ?? '');
+  const [dogPhotoUrl, setDogPhotoUrl] = useState(paramDogPhotoUrl ?? null);
+  const [currentDogId, setCurrentDogId] = useState(paramDogId ?? null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
   const [transcription, setTranscription] = useState('');
@@ -738,12 +742,16 @@ function CheckInScreen({ navigation, route }) {
       userIdRef.current = userId;
       const [userResult, dogResult] = await Promise.all([
         supabase.from('users').select('first_name').eq('user_id', userId).single(),
-        supabase.from('dogs').select('dog_name, dog_id').eq('owner_id', userId).limit(1).single(),
+        paramDogId
+          ? supabase.from('dogs').select('dog_name, dog_id, profile_photo_url').eq('dog_id', paramDogId).single()
+          : supabase.from('dogs').select('dog_name, dog_id, profile_photo_url').eq('owner_id', userId).limit(1).single(),
       ]);
       if (userResult.data?.first_name) setUserName(userResult.data.first_name);
       if (dogResult.data?.dog_name) setDogName(dogResult.data.dog_name);
+      if (dogResult.data?.profile_photo_url) setDogPhotoUrl(dogResult.data.profile_photo_url);
       const dogId = dogResult.data?.dog_id ?? null;
       dogIdRef.current = dogId;
+      setCurrentDogId(dogId);
 
       const { data: familyData } = await supabase
         .from('family_members')
@@ -1501,6 +1509,19 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         </View>
       </View>
 
+      {dogName ? (
+        <View style={checkIn.dogHeader}>
+          {dogPhotoUrl ? (
+            <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
+          ) : (
+            <View style={checkIn.dogHeaderPhotoPlaceholder}>
+              <MaterialCommunityIcons name="paw" size={28} color="#0F6E56" />
+            </View>
+          )}
+          <Text style={checkIn.dogHeaderName}>{dogName}</Text>
+        </View>
+      ) : null}
+
       <View style={checkIn.content}>
         <Text style={checkIn.greeting}>Good morning, {userName || 'there'}.</Text>
         <Text style={checkIn.question}>How did {dogName || 'your dog'}'s morning go?</Text>
@@ -1579,6 +1600,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         onClose={() => setIsMenuOpen(false)}
         navigation={navigation}
         dogName={dogName}
+        dogId={currentDogId}
       />
     </View>
   );
@@ -2213,27 +2235,50 @@ export default function App() {
 
         if (event === 'INITIAL_SESSION') {
           if (session) {
-            navigateWhenReady([{ name: 'CheckIn' }]);
+            const { data: dogs } = await supabase
+              .from('dogs')
+              .select('dog_id, dog_name, profile_photo_url')
+              .eq('owner_id', session.user.id);
+
+            if (!dogs || dogs.length === 0) return;
+
+            if (dogs.length === 1) {
+              navigateWhenReady([{
+                name: 'CheckIn',
+                params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null },
+              }]);
+            } else {
+              const lastDogId = await AsyncStorage.getItem('last_selected_dog_id');
+              const lastDog = lastDogId ? dogs.find(d => d.dog_id === lastDogId) : null;
+              if (lastDog) {
+                navigateWhenReady([{
+                  name: 'CheckIn',
+                  params: { dogId: lastDog.dog_id, dogName: lastDog.dog_name, dogPhotoUrl: lastDog.profile_photo_url ?? null },
+                }]);
+              } else {
+                navigateWhenReady([{ name: 'DogSelection' }]);
+              }
+            }
           }
           return;
         }
 
         if (event === 'SIGNED_IN' && session) {
           console.log('[DEBUG] SIGNED_IN — querying dogs for owner_id:', session.user.id);
-          const { data: dog, error: dogQueryError } = await supabase
+          const { data: dogs } = await supabase
             .from('dogs')
-            .select('dog_id')
-            .eq('owner_id', session.user.id)
-            .limit(1)
-            .maybeSingle();
-          console.log('[DEBUG] dogs query result:', JSON.stringify({ data: dog, error: dogQueryError }, null, 2));
+            .select('dog_id, dog_name, profile_photo_url')
+            .eq('owner_id', session.user.id);
+          console.log('[DEBUG] dogs query result:', JSON.stringify(dogs));
 
-          if (dog) {
-            if (navigationRef.isReady()) {
-              navigationRef.reset({
-                index: 0,
-                routes: [{ name: 'CheckIn' }],
-              });
+          if (dogs && dogs.length > 0) {
+            if (dogs.length === 1) {
+              navigateWhenReady([{
+                name: 'CheckIn',
+                params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null },
+              }]);
+            } else {
+              navigateWhenReady([{ name: 'DogSelection' }]);
             }
           } else {
             const pairs = await AsyncStorage.multiGet([
@@ -2248,18 +2293,13 @@ export default function App() {
             ]);
             const stored = Object.fromEntries(pairs);
 
-            if (navigationRef.isReady()) {
-              navigationRef.reset({
-                index: 0,
-                routes: [{
-                  name: 'Congratulations',
-                  params: {
-                    userName: stored.onboarding_userName ?? 'there',
-                    dogName: stored.onboarding_dogName ?? 'your dog',
-                  },
-                }],
-              });
-            }
+            navigateWhenReady([{
+              name: 'Congratulations',
+              params: {
+                userName: stored.onboarding_userName ?? 'there',
+                dogName: stored.onboarding_dogName ?? 'your dog',
+              },
+            }]);
 
             saveOnboardingData(session, stored).catch((err) => {
               console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
@@ -2298,6 +2338,7 @@ export default function App() {
         <Stack.Screen name="OtpCode" component={OtpScreen} />
         <Stack.Screen name="SignIn" component={SignInScreen} />
         <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="DogSelection" component={DogSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
         <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerTitle: 'Report History' }} />
@@ -3333,6 +3374,31 @@ const checkIn = StyleSheet.create({
     fontSize: 16,
     color: '#1A3C34',
     lineHeight: 26,
+  },
+  dogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 60,
+    marginBottom: 8,
+  },
+  dogHeaderPhoto: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  dogHeaderPhotoPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#E8F3EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dogHeaderName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F6E56',
   },
 });
 

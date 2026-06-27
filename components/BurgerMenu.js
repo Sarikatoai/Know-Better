@@ -1,8 +1,10 @@
 import { supabase } from '../lib/supabase';
+import { pickAndUploadDogPhoto } from '../lib/photoUpload';
 import { useState, useEffect, useRef } from 'react';
 import {
   Alert,
   Animated,
+  Image,
   Linking,
   Modal,
   Platform,
@@ -17,12 +19,15 @@ import {
 const TEAL = '#0F6E56';
 const RED = '#DC2626';
 
-export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propDogName }) {
+export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propDogName, dogId: propDogId }) {
   const [dogProfile, setDogProfile] = useState(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [userId, setUserId] = useState(null);
-  const [dogId, setDogId] = useState(null);
+  const [dogId, setDogId] = useState(propDogId ?? null);
   const [dogName, setDogName] = useState(propDogName ?? '');
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   const [isLoadingNotif, setIsLoadingNotif] = useState(false);
   const slideAnim = useRef(new Animated.Value(-320)).current;
 
@@ -45,14 +50,13 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     const uid = session.user.id;
     setUserId(uid);
 
+    const dogQuery = propDogId
+      ? supabase.from('dogs').select('dog_id, dog_name, breed, sex, date_of_birth, pre_existing_health_conditions, profile_photo_url').eq('dog_id', propDogId).single()
+      : supabase.from('dogs').select('dog_id, dog_name, breed, sex, date_of_birth, pre_existing_health_conditions, profile_photo_url').eq('owner_id', uid).limit(1).single();
+
     const [userRes, dogRes] = await Promise.all([
       supabase.from('users').select('notifications_enabled').eq('user_id', uid).single(),
-      supabase
-        .from('dogs')
-        .select('dog_id, dog_name, breed, sex, date_of_birth, pre_existing_health_conditions')
-        .eq('owner_id', uid)
-        .limit(1)
-        .single(),
+      dogQuery,
     ]);
 
     if (userRes.data) setNotificationsEnabled(userRes.data.notifications_enabled ?? false);
@@ -60,7 +64,23 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
       setDogProfile(dogRes.data);
       setDogId(dogRes.data.dog_id);
       if (!propDogName) setDogName(dogRes.data.dog_name ?? '');
+      setPhotoUrl(dogRes.data.profile_photo_url ?? null);
     }
+  };
+
+  const handlePhotoUpload = async () => {
+    const id = dogId;
+    if (!id) return;
+    setPhotoLoading(true);
+    setPhotoError('');
+    const result = await pickAndUploadDogPhoto(id);
+    setPhotoLoading(false);
+    if (result.canceled) return;
+    if (result.error) {
+      setPhotoError('Photo upload failed, try again');
+      return;
+    }
+    setPhotoUrl(result.url);
   };
 
   const calculateAge = (dob) => {
@@ -173,6 +193,21 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
             {/* Section 3 — Dog Profile */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Dog profile</Text>
+              <View style={styles.photoSection}>
+                {photoUrl ? (
+                  <Image source={{ uri: photoUrl }} style={styles.dogPhoto} />
+                ) : (
+                  <View style={styles.dogPhotoPlaceholder}>
+                    <Text style={styles.pawEmoji}>🐾</Text>
+                  </View>
+                )}
+                <TouchableOpacity onPress={handlePhotoUpload} disabled={photoLoading} activeOpacity={0.7}>
+                  <Text style={styles.photoLink}>
+                    {photoLoading ? 'Uploading…' : photoUrl ? 'Edit photo' : 'Add photo'}
+                  </Text>
+                </TouchableOpacity>
+                {photoError ? <Text style={styles.photoError}>{photoError}</Text> : null}
+              </View>
               {dogProfile ? (
                 <View style={styles.profileFields}>
                   <ProfileRow label="Name" value={dogProfile.dog_name} />
@@ -303,6 +338,38 @@ const styles = StyleSheet.create({
   toggleLabel: {
     fontSize: 14,
     color: '#666666',
+  },
+  photoSection: {
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+    marginTop: 4,
+  },
+  dogPhoto: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  dogPhotoPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#E8F3EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pawEmoji: {
+    fontSize: 24,
+  },
+  photoLink: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: TEAL,
+  },
+  photoError: {
+    fontSize: 12,
+    color: RED,
+    textAlign: 'center',
   },
   profileFields: {
     gap: 10,
