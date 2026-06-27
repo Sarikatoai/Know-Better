@@ -1,4 +1,5 @@
 import { supabase } from './lib/supabase';
+import BurgerMenu from './components/BurgerMenu';
 import { Audio } from 'expo-av';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -701,6 +702,7 @@ function CheckInScreen({ navigation, route }) {
   const { userName: paramUserName, dogName: paramDogName } = route.params ?? {};
   const [userName, setUserName] = useState(paramUserName ?? '');
   const [dogName, setDogName] = useState(paramDogName ?? '');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
   const [transcription, setTranscription] = useState('');
   const [claudeResponse, setClaudeResponse] = useState('');
@@ -1482,11 +1484,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     else if (recordingState === 'recording') stopAndTranscribe();
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
-  };
-
   const isRecording = recordingState === 'recording';
   const isProcessing = recordingState === 'processing';
 
@@ -1494,9 +1491,14 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     <View style={checkIn.container}>
       <StatusBar style="dark" />
 
-      <View style={checkIn.header}>
-        <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
-        <Text style={checkIn.brand}>Know Better</Text>
+      <View style={[checkIn.header, { justifyContent: 'space-between' }]}>
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={checkIn.brand}>Know Better</Text>
+        </View>
       </View>
 
       <View style={checkIn.content}>
@@ -1572,16 +1574,12 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         )}
       </View>
 
-      <TouchableOpacity onPress={handleSignOut} activeOpacity={0.6}>
-        <Text style={checkIn.signOutLink}>Sign out</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={() => navigation.navigate('Report', { dogId: dogIdRef.current, dogName })}
-        activeOpacity={0.6}
-      >
-        <Text style={checkIn.reportLink}>View vet report</Text>
-      </TouchableOpacity>
+      <BurgerMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        navigation={navigation}
+        dogName={dogName}
+      />
     </View>
   );
 }
@@ -1815,6 +1813,16 @@ function ReportScreen({ navigation, route }) {
   const [weekIndex, setWeekIndex] = useState(null);
 
   useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7} style={{ paddingRight: 16 }}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color="#0F6E56" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  useEffect(() => {
     const load = async () => {
       setIsLoading(true);
       let resolvedDogId = paramDogId ?? null;
@@ -1998,6 +2006,17 @@ function ReportHistoryScreen({ navigation, route }) {
   const { dogId: paramDogId, dogName } = route.params ?? {};
   const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingRight: 8 }}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   useEffect(() => {
     const load = async () => {
@@ -2023,6 +2042,7 @@ function ReportHistoryScreen({ navigation, route }) {
   }, []);
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView style={reportHistory.container} contentContainerStyle={reportHistory.content}>
       <Text style={reportHistory.title}>Report history</Text>
       {isLoading && <Text style={reportHistory.empty}>Loading…</Text>}
@@ -2046,6 +2066,13 @@ function ReportHistoryScreen({ navigation, route }) {
         );
       })}
     </ScrollView>
+    <BurgerMenu
+      isOpen={isMenuOpen}
+      onClose={() => setIsMenuOpen(false)}
+      navigation={navigation}
+      dogName={dogName}
+    />
+    </View>
   );
 }
 
@@ -3306,19 +3333,6 @@ const checkIn = StyleSheet.create({
     fontSize: 16,
     color: '#1A3C34',
     lineHeight: 26,
-  },
-  signOutLink: {
-    fontSize: 12,
-    color: '#CCCCCC',
-    textAlign: 'center',
-    paddingVertical: 4,
-  },
-  reportLink: {
-    fontSize: 13,
-    color: '#0F6E56',
-    fontWeight: '600',
-    textAlign: 'center',
-    paddingVertical: 8,
   },
 });
 
