@@ -1,6 +1,9 @@
 import { supabase } from './lib/supabase';
 import BurgerMenu from './components/BurgerMenu';
 import DogSelectionScreen from './screens/DogSelectionScreen';
+import HelpScreen from './screens/HelpScreen';
+import PrivacyScreen from './screens/PrivacyScreen';
+import TermsScreen from './screens/TermsScreen';
 import { Audio } from 'expo-av';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -2378,6 +2381,9 @@ export default function App() {
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
         <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerTitle: 'Report History' }} />
+        <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Terms" component={TermsScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

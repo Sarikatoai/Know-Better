@@ -246,9 +246,9 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Account settings</Text>
               <View style={styles.linkList}>
-                <AccountLink label="Help" onPress={() => openLink('https://support.knowbetter.app')} />
-                <AccountLink label="Privacy policy" onPress={() => openLink('https://knowbetter.app/privacy')} />
-                <AccountLink label="Terms of service" onPress={() => openLink('https://knowbetter.app/terms')} />
+                <AccountLink label="Help" onPress={() => { onClose(); navigation.navigate('Help'); }} />
+                <AccountLink label="Privacy policy" onPress={() => { onClose(); navigation.navigate('Privacy'); }} />
+                <AccountLink label="Terms of service" onPress={() => { onClose(); navigation.navigate('Terms'); }} />
               </View>
             </View>
 
