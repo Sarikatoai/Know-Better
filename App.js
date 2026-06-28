@@ -748,7 +748,7 @@ function CheckInScreen({ navigation, route }) {
       ]);
       if (userResult.data?.first_name) setUserName(userResult.data.first_name);
       if (dogResult.data?.dog_name) setDogName(dogResult.data.dog_name);
-      if (dogResult.data?.profile_photo_url) setDogPhotoUrl(dogResult.data.profile_photo_url);
+      if (dogResult.data?.profile_photo_url) setDogPhotoUrl(`${dogResult.data.profile_photo_url}?t=${Date.now()}`);
       const dogId = dogResult.data?.dog_id ?? null;
       dogIdRef.current = dogId;
       setCurrentDogId(dogId);
@@ -2232,6 +2232,11 @@ export default function App() {
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('[Auth] event:', event, '| session:', session ? 'exists' : 'null');
+
+        if (event === 'SIGNED_OUT') {
+          navigateWhenReady([{ name: 'Welcome' }]);
+          return;
+        }
 
         if (event === 'INITIAL_SESSION') {
           if (session) {
