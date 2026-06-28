@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { pickAndUploadDogPhoto } from '../lib/photoUpload';
+import { setupPushNotifications } from '../lib/notifications';
 import { useState, useEffect, useRef } from 'react';
 import {
   Alert,
@@ -64,7 +65,8 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
       setDogProfile(dogRes.data);
       setDogId(dogRes.data.dog_id);
       if (!propDogName) setDogName(dogRes.data.dog_name ?? '');
-      setPhotoUrl(dogRes.data.profile_photo_url ?? null);
+      const rawUrl = dogRes.data.profile_photo_url ?? null;
+      setPhotoUrl(rawUrl ? `${rawUrl}?t=${Date.now()}` : null);
     }
   };
 
@@ -97,11 +99,21 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     if (isLoadingNotif || !userId) return;
     setIsLoadingNotif(true);
     if (value) {
-      const { error } = await supabase
-        .from('users')
-        .update({ notifications_enabled: true })
-        .eq('user_id', userId);
-      if (!error) setNotificationsEnabled(true);
+      const token = await setupPushNotifications();
+      if (token) {
+        const { error } = await supabase
+          .from('users')
+          .update({ notifications_enabled: true, push_token: token })
+          .eq('user_id', userId);
+        if (!error) setNotificationsEnabled(true);
+      } else {
+        setNotificationsEnabled(false);
+        Alert.alert(
+          'Notifications blocked',
+          'To enable notifications, allow access in your device settings.',
+          [{ text: 'OK' }]
+        );
+      }
     } else {
       const { error } = await supabase
         .from('users')
@@ -112,23 +124,9 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     setIsLoadingNotif(false);
   };
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Are you sure?',
-      'You will be logged out.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            onClose();
-            await supabase.auth.signOut();
-            navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
-          },
-        },
-      ]
-    );
+  const handleSignOut = async () => {
+    onClose();
+    await supabase.auth.signOut();
   };
 
   const openLink = (url) => {
@@ -148,9 +146,11 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     >
       <View style={styles.overlay}>
         <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}>
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
-            <Text style={styles.closeIcon}>✕</Text>
-          </TouchableOpacity>
+          <View style={styles.drawerHeader}>
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
+              <Text style={styles.closeIcon}>✕</Text>
+            </TouchableOpacity>
+          </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.menuContent}>
 
@@ -284,20 +284,22 @@ const styles = StyleSheet.create({
     width: '80%',
     maxWidth: 320,
     backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingTop: Platform.OS === 'ios' ? 48 : 32,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 12,
   },
+  drawerHeader: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
   overlayDismiss: {
     flex: 1,
   },
   closeBtn: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 56 : 36,
-    right: 16,
     width: 32,
     height: 32,
     alignItems: 'center',
