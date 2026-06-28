@@ -20,6 +20,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0db99893-6c06-42a1-b9f4-150d3607f411"
+      }
+    },
+    "owner": "sarikasonawane"
   }
 }
