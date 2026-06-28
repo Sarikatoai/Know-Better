@@ -134,7 +134,9 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
           text: 'Sign out',
           style: 'destructive',
           onPress: async () => {
+            onClose();
             await supabase.auth.signOut();
+            navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
           },
         },
       ]
