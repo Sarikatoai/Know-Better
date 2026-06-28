@@ -111,6 +111,9 @@ function WelcomeScreen({ navigation }) {
         <Text style={welcome.subtitle}>
           I would love to get to know your dog.
         </Text>
+        <Text style={welcome.tagline}>
+          Daily check-ins help you notice patterns — good days and changing patterns both matter.
+        </Text>
       </View>
 
       <View style={welcome.footer}>
@@ -2518,6 +2521,14 @@ const welcome = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.85)',
     textAlign: 'center',
     lineHeight: 26,
+  },
+  tagline: {
+    fontSize: 13,
+    fontWeight: '300',
+    color: 'rgba(255, 255, 255, 0.65)',
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 8,
   },
   footer: {
     width: '100%',
