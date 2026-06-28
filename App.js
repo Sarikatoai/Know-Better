@@ -780,6 +780,32 @@ function CheckInScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
+    const newDogId = route.params?.dogId;
+    if (!newDogId || newDogId === dogIdRef.current) return;
+
+    dogIdRef.current = newDogId;
+    setCurrentDogId(newDogId);
+    if (route.params?.dogName) setDogName(route.params.dogName);
+    setDogPhotoUrl(route.params?.dogPhotoUrl ? `${route.params.dogPhotoUrl}?t=${Date.now()}` : null);
+    setTranscription('');
+    setClaudeResponse('');
+    setActiveAlertLevel(null);
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) return;
+      supabase
+        .from('family_members')
+        .select('family_member_id')
+        .eq('owner_id', session.user.id)
+        .eq('dog_id', newDogId)
+        .single()
+        .then(({ data }) => {
+          if (data?.family_member_id) familyMemberIdRef.current = data.family_member_id;
+        });
+    });
+  }, [route.params?.dogId]);
+
+  useEffect(() => {
     if (recordingState === 'recording') {
       Animated.loop(
         Animated.sequence([
@@ -1510,7 +1536,11 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       </View>
 
       {dogName ? (
-        <View style={checkIn.dogHeader}>
+        <TouchableOpacity
+          style={checkIn.dogHeader}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('DogSelection', { mode: 'switch' })}
+        >
           {dogPhotoUrl ? (
             <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
           ) : (
@@ -1519,7 +1549,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             </View>
           )}
           <Text style={checkIn.dogHeaderName}>{dogName}</Text>
-        </View>
+          <MaterialCommunityIcons name="chevron-down" size={16} color="#0F6E56" />
+        </TouchableOpacity>
       ) : null}
 
       <View style={checkIn.content}>

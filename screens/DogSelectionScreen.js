@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
-export default function DogSelectionScreen({ navigation }) {
+export default function DogSelectionScreen({ navigation, route }) {
   const [dogs, setDogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -35,19 +35,20 @@ export default function DogSelectionScreen({ navigation }) {
     load();
   }, []);
 
+  const { mode } = route.params ?? {};
+
   const handleSelect = async (dog) => {
     await AsyncStorage.setItem('last_selected_dog_id', dog.dog_id);
-    navigation.reset({
-      index: 0,
-      routes: [{
-        name: 'CheckIn',
-        params: {
-          dogId: dog.dog_id,
-          dogName: dog.dog_name,
-          dogPhotoUrl: dog.profile_photo_url ?? null,
-        },
-      }],
-    });
+    const params = {
+      dogId: dog.dog_id,
+      dogName: dog.dog_name,
+      dogPhotoUrl: dog.profile_photo_url ?? null,
+    };
+    if (mode === 'switch') {
+      navigation.navigate('CheckIn', params);
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'CheckIn', params }] });
+    }
   };
 
   if (isLoading) {
