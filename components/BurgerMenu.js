@@ -99,18 +99,18 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     if (isLoadingNotif || !userId) return;
     setIsLoadingNotif(true);
     if (value) {
-      const token = await setupPushNotifications();
-      if (token) {
+      const { granted, token } = await setupPushNotifications();
+      if (granted) {
         const { error } = await supabase
           .from('users')
-          .update({ notifications_enabled: true, push_token: token })
+          .update({ notifications_enabled: true, push_token: token ?? null })
           .eq('user_id', userId);
         if (!error) setNotificationsEnabled(true);
       } else {
         setNotificationsEnabled(false);
         Alert.alert(
           'Notifications blocked',
-          'To enable notifications, allow access in your device settings.',
+          'To enable notifications, go to Settings and allow notifications for Expo Go.',
           [{ text: 'OK' }]
         );
       }
