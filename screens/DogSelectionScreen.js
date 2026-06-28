@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import BurgerMenu from '../components/BurgerMenu';
 import { useState, useEffect } from 'react';
 import {
   Image,
@@ -16,6 +17,7 @@ import { StatusBar } from 'expo-status-bar';
 export default function DogSelectionScreen({ navigation, route }) {
   const [dogs, setDogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -62,6 +64,17 @@ export default function DogSelectionScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
+
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={styles.brand}>Know Better</Text>
+        </View>
+      </View>
+
       <Text style={styles.title}>Which dog are you{'\n'}checking in on today?</Text>
       <ScrollView
         contentContainerStyle={styles.grid}
@@ -85,6 +98,12 @@ export default function DogSelectionScreen({ navigation, route }) {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      <BurgerMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        navigation={navigation}
+      />
     </View>
   );
 }
@@ -95,6 +114,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     paddingTop: Platform.OS === 'ios' ? 64 : 48,
     paddingHorizontal: 24,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 32,
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
   },
   title: {
     fontSize: 26,
