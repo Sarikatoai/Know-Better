@@ -77,7 +77,7 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     setPhotoLoading(false);
     if (result.canceled) return;
     if (result.error) {
-      setPhotoError('Photo upload failed, try again');
+      setPhotoError(result.message || 'Photo upload failed, try again');
       return;
     }
     setPhotoUrl(result.url);
