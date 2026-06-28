@@ -124,9 +124,21 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     setIsLoadingNotif(false);
   };
 
-  const handleSignOut = async () => {
-    onClose();
-    await supabase.auth.signOut();
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: async () => {
+            await supabase.auth.signOut();
+          },
+        },
+      ]
+    );
   };
 
   const openLink = (url) => {
