@@ -1675,7 +1675,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
 
             {isAtLimit ? (
               <Text style={checkIn.rateLimitMsg}>
-                You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. Come back tomorrow.
+                You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
               </Text>
             ) : (
               <>
