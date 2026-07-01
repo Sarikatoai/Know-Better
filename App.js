@@ -18,6 +18,7 @@ import {
   Animated,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -88,7 +89,6 @@ const AGE_OPTIONS = [
 
 const SPECIAL_OPTIONS = [
   'Mixed breed',
-  'Mixed breed — (specify primary breed)',
   'Not sure',
 ];
 
@@ -224,20 +224,31 @@ function DogBreedScreen({ navigation, route }) {
       </View>
 
       <View style={dogBreed.inputWrapper}>
-        <TextInput
-          style={dogBreed.input}
-          placeholder={`What breed is ${dogName}?`}
-          placeholderTextColor="#9CA3AF"
-          value={breed}
-          onChangeText={(text) => {
-            setBreed(text);
-            setShowSuggestions(true);
-          }}
-          onFocus={() => setShowSuggestions(true)}
-          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-          returnKeyType="done"
-          onSubmitEditing={() => setShowSuggestions(false)}
-        />
+        <View style={dogBreed.inputRow}>
+          <TextInput
+            style={dogBreed.input}
+            placeholder={`What breed is ${dogName}?`}
+            placeholderTextColor="#9CA3AF"
+            value={breed}
+            onChangeText={(text) => {
+              setBreed(text);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            returnKeyType="done"
+            onSubmitEditing={() => setShowSuggestions(false)}
+          />
+          {breed.length > 0 && (
+            <TouchableOpacity
+              style={dogBreed.clearBtn}
+              onPress={() => { setBreed(''); setShowSuggestions(true); }}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="close-circle" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+          )}
+        </View>
 
         {showSuggestions && (
           <View style={dogBreed.dropdown}>
@@ -1228,6 +1239,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       // Consecutive concerning days rule (relaxed thresholds during active treatment)
       const ccd = b.consecutive_concerning_days ?? 0;
+      const totalDays = b.total_days ?? 0;
       let alertLevel = null;
       if (treatmentActive) {
         console.log('[HealthEvent] treatment context active — using relaxed thresholds');
@@ -1235,20 +1247,25 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         else if (ccd >= 3) alertLevel = 2;
         else if (ccd >= 4) alertLevel = 1;
       } else {
-        if (ccd >= 5) alertLevel = 3;
-        else if (ccd >= 3) alertLevel = 2;
-        else if (ccd >= 2) alertLevel = 1;
+        if      (ccd >= 5 && totalDays >= 10) alertLevel = 3;
+        else if (ccd >= 3 && totalDays >= 7)  alertLevel = 2;
+        else if (ccd >= 2 && totalDays >= 5)  alertLevel = 1;
+
+        if (alertLevel === null && ccd >= 2) {
+          const needed = ccd >= 5 ? 10 : ccd >= 3 ? 7 : 5;
+          console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays}/${needed} days)`);
+        }
       }
-      console.log('[Deviation] consecutive_concerning_days:', ccd, '→ alertLevel:', alertLevel);
+      console.log('[Deviation] consecutive_concerning_days:', ccd, '| total_days:', totalDays, '→ alertLevel:', alertLevel);
 
       // Combination rule
       const ccfd = b.consecutive_combination_days ?? 0;
       const lowCount = b.low_signal_count_today ?? 0;
       let combinationAlertLevel = null;
-      if (lowCount >= 3) combinationAlertLevel = 2;
-      else if (ccfd >= 3) combinationAlertLevel = 2;
-      else if (ccfd >= 2) combinationAlertLevel = 1;
-      console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '→ combinationAlertLevel:', combinationAlertLevel);
+      if      (lowCount >= 3 && totalDays >= 7) combinationAlertLevel = 2;
+      else if (ccfd >= 3   && totalDays >= 7)  combinationAlertLevel = 2;
+      else if (ccfd >= 2   && totalDays >= 5)  combinationAlertLevel = 1;
+      console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '| total_days:', totalDays, '→ combinationAlertLevel:', combinationAlertLevel);
 
       // Final: highest level from either rule
       const finalLevel = Math.max(alertLevel ?? 0, combinationAlertLevel ?? 0) || null;
@@ -2247,6 +2264,178 @@ function ReportHistoryScreen({ navigation, route }) {
   );
 }
 
+// ─── Screen: Check-in History ────────────────────────────────────────────────
+
+const HISTORY_PAGE_SIZE = 30;
+
+const ALERT_BADGE_COLORS = {
+  1: { bg: '#FFFBEB', text: '#D97706' },
+  2: { bg: '#FFF7ED', text: '#EA580C' },
+  3: { bg: '#FEE2E2', text: '#DC2626' },
+};
+
+const ALERT_BADGE_LABELS = { 1: 'Level 1', 2: 'Level 2', 3: 'Level 3' };
+
+const formatCheckInDate = (iso) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
+function CheckInHistoryScreen({ navigation, route }) {
+  const { dogId: paramDogId, dogName } = route.params ?? {};
+  const [items, setItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const offsetRef = useRef(0);
+  const dogIdsRef = useRef([]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingRight: 8 }}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  useEffect(() => {
+    const init = async () => {
+      let dogIds = [];
+      if (paramDogId) {
+        dogIds = [paramDogId];
+      } else {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: dogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', session.user.id);
+          dogIds = (dogs ?? []).map(d => d.dog_id);
+        }
+      }
+      dogIdsRef.current = dogIds;
+      if (dogIds.length > 0) await fetchPage(dogIds, 0, true);
+      setIsLoading(false);
+    };
+    init();
+  }, []);
+
+  const fetchPage = async (dogIds, offset, initial = false) => {
+    const { data, error } = await supabase
+      .from('check_ins')
+      .select(`
+        check_in_id,
+        check_in_text,
+        input_classification,
+        created_at,
+        dogs(dog_name),
+        responses(response_text),
+        alerts(alert_level)
+      `)
+      .in('dog_id', dogIds)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + HISTORY_PAGE_SIZE - 1);
+    if (error) { console.log('[CheckInHistory] error:', error); return; }
+    const rows = data ?? [];
+    setItems(prev => initial ? rows : [...prev, ...rows]);
+    setHasMore(rows.length === HISTORY_PAGE_SIZE);
+    offsetRef.current = offset + rows.length;
+  };
+
+  const loadMore = async () => {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    await fetchPage(dogIdsRef.current, offsetRef.current);
+    setIsLoadingMore(false);
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: T.color.offWhite }}>
+      <ScrollView contentContainerStyle={ciHistory.content}>
+        {isLoading && <Text style={ciHistory.empty}>Loading…</Text>}
+        {!isLoading && items.length === 0 && <Text style={ciHistory.empty}>No check-ins yet.</Text>}
+        {items.map((item) => {
+          const responseText = item.responses?.[0]?.response_text ?? null;
+          const alertLevel = item.alerts?.[0]?.alert_level ?? null;
+          const summary = responseText
+            ? responseText.substring(0, 50) + (responseText.length > 50 ? '…' : '')
+            : (item.check_in_text?.substring(0, 50) ?? '');
+          const badge = alertLevel ? ALERT_BADGE_COLORS[alertLevel] : null;
+          return (
+            <TouchableOpacity
+              key={item.check_in_id}
+              style={ciHistory.row}
+              activeOpacity={0.7}
+              onPress={() => setSelectedItem(item)}
+            >
+              <View style={ciHistory.rowMeta}>
+                <Text style={ciHistory.rowDate}>{formatCheckInDate(item.created_at)}</Text>
+                {item.dogs?.dog_name ? <Text style={ciHistory.rowDog}>{item.dogs.dog_name}</Text> : null}
+              </View>
+              <View style={ciHistory.rowBottom}>
+                <Text style={ciHistory.rowSummary} numberOfLines={2}>{summary}</Text>
+                {badge && (
+                  <View style={[ciHistory.badge, { backgroundColor: badge.bg }]}>
+                    <Text style={[ciHistory.badgeText, { color: badge.text }]}>{ALERT_BADGE_LABELS[alertLevel]}</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+        {hasMore && !isLoading && (
+          <TouchableOpacity onPress={loadMore} style={ciHistory.loadMore} activeOpacity={0.7} disabled={isLoadingMore}>
+            <Text style={ciHistory.loadMoreText}>{isLoadingMore ? 'Loading…' : 'Load more'}</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+
+      {selectedItem && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setSelectedItem(null)}>
+          <View style={ciHistory.modalOverlay}>
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setSelectedItem(null)} />
+            <View style={ciHistory.modalSheet}>
+              <View style={ciHistory.modalHeader}>
+                <View>
+                  <Text style={ciHistory.modalDate}>{formatCheckInDate(selectedItem.created_at)}</Text>
+                  {selectedItem.dogs?.dog_name ? <Text style={ciHistory.modalDog}>{selectedItem.dogs.dog_name}</Text> : null}
+                </View>
+                <TouchableOpacity onPress={() => setSelectedItem(null)} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="close" size={20} color={T.color.gray600} />
+                </TouchableOpacity>
+              </View>
+              {selectedItem.check_in_text ? (
+                <>
+                  <Text style={ciHistory.modalSectionLabel}>What you said</Text>
+                  <Text style={ciHistory.modalBody}>{selectedItem.check_in_text}</Text>
+                </>
+              ) : null}
+              {selectedItem.responses?.[0]?.response_text ? (
+                <>
+                  <Text style={ciHistory.modalSectionLabel}>Know Better's response</Text>
+                  <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 260 }}>
+                    <Text style={ciHistory.modalBody}>{selectedItem.responses[0].response_text}</Text>
+                  </ScrollView>
+                </>
+              ) : null}
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      <BurgerMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        navigation={navigation}
+        dogName={dogName}
+        dogId={paramDogId}
+      />
+    </View>
+  );
+}
+
 // ─── Onboarding save helpers ─────────────────────────────────────────────────
 
 const ageToDOB = (ageStr) => {
@@ -2496,6 +2685,7 @@ export default function App() {
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
         <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerTitle: 'Report History' }} />
+        <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerTitle: 'Check-in History' }} />
         <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Terms" component={TermsScreen} options={{ headerShown: false }} />
@@ -3250,16 +3440,25 @@ const dogBreed = StyleSheet.create({
   inputWrapper: {
     zIndex: 10,
   },
-  input: {
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 4,
+    backgroundColor: '#FAFAF9',
+    minHeight: 44,
+    paddingRight: 12,
+  },
+  input: {
+    flex: 1,
     paddingVertical: 12,
     paddingHorizontal: 16,
     fontSize: 16,
     color: '#1F2937',
-    backgroundColor: '#FAFAF9',
-    minHeight: 44,
+  },
+  clearBtn: {
+    padding: 4,
   },
   dropdown: {
     position: 'absolute',
@@ -3892,5 +4091,111 @@ const reportHistory = StyleSheet.create({
     fontSize: 13,
     color: '#9CA3AF',
     marginTop: 2,
+  },
+});
+
+const ciHistory = StyleSheet.create({
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 48,
+  },
+  empty: {
+    fontSize: 14,
+    color: T.color.gray600,
+    textAlign: 'center',
+    marginTop: 24,
+  },
+  row: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: T.color.gray300,
+    gap: 4,
+  },
+  rowMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  rowDate: {
+    fontSize: 13,
+    color: T.color.gray600,
+  },
+  rowDog: {
+    fontSize: 13,
+    color: T.color.gray600,
+    fontWeight: '500',
+  },
+  rowBottom: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 2,
+  },
+  rowSummary: {
+    flex: 1,
+    fontSize: 15,
+    color: T.color.charcoal,
+    lineHeight: 21,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    flexShrink: 0,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  loadMore: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  loadMoreText: {
+    fontSize: 14,
+    color: T.color.teal,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: T.color.offWhite,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 24,
+    paddingBottom: 40,
+    gap: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+  },
+  modalDate: {
+    fontSize: 14,
+    color: T.color.gray600,
+  },
+  modalDog: {
+    fontSize: 13,
+    color: T.color.gray600,
+    marginTop: 2,
+  },
+  modalSectionLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: T.color.gray600,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  modalBody: {
+    fontSize: 15,
+    color: T.color.charcoal,
+    lineHeight: 23,
   },
 });
