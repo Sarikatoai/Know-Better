@@ -720,6 +720,8 @@ function CongratulationsScreen({ navigation, route }) {
 
 // ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
 
+const DAILY_CHECKIN_LIMIT = 10;
+
 const ALERT_BANNER_CONFIG = {
   1: { bg: '#FFFBEB', text: 'I noticed a pattern', color: '#D97706' },
   2: { bg: '#FFF7ED', text: 'Worth mentioning to your vet', color: '#EA580C' },
@@ -739,6 +741,8 @@ function CheckInScreen({ navigation, route }) {
   const [activeAlertLevel, setActiveAlertLevel] = useState(null);
   const [isClaudeLoading, setIsClaudeLoading] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [dailyCount, setDailyCount] = useState(0);
+  const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
   const recordingRef = useRef(null);
@@ -766,6 +770,7 @@ function CheckInScreen({ navigation, route }) {
       if (!session) return;
       const userId = session.user.id;
       userIdRef.current = userId;
+      fetchDailyCount(userId);
 
       if (Platform.OS !== 'web') {
         const { token } = await setupPushNotifications();
@@ -862,6 +867,23 @@ function CheckInScreen({ navigation, route }) {
     }
   }, [recordingState]);
 
+  const fetchDailyCount = async (userId) => {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const { data: dogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
+    const dogIds = (dogs ?? []).map(d => d.dog_id);
+    if (dogIds.length === 0) { setDailyCountLoaded(true); return 0; }
+    const { count } = await supabase
+      .from('check_ins')
+      .select('check_in_id', { count: 'exact', head: true })
+      .in('dog_id', dogIds)
+      .gte('created_at', todayStart.toISOString());
+    const c = count ?? 0;
+    setDailyCount(c);
+    setDailyCountLoaded(true);
+    return c;
+  };
+
   const saveCheckIn = async (blob, mimeType, transcriptionText, inputClassification = 'irrelevant', treatmentActive = false) => {
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
@@ -871,6 +893,23 @@ function CheckInScreen({ navigation, route }) {
       console.log('[CheckIn] missing IDs, skipping save:', { userId, dogId, familyMemberId });
       return null;
     }
+
+    // Hard rate limit check (server-side guard)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const { data: userDogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
+    const allDogIds = (userDogs ?? []).map(d => d.dog_id);
+    const { count: todayCount } = await supabase
+      .from('check_ins')
+      .select('check_in_id', { count: 'exact', head: true })
+      .in('dog_id', allDogIds)
+      .gte('created_at', todayStart.toISOString());
+    if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
+      console.log('[RateLimit] daily limit reached, blocking save');
+      setDailyCount(todayCount ?? 0);
+      return null;
+    }
+
     try {
       const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : 'webm';
       const path = `${userId}/${dogId}/${Date.now()}.${ext}`;
@@ -905,6 +944,7 @@ function CheckInScreen({ navigation, route }) {
         return null;
       }
       console.log('[CheckIn] saved, check_in_id:', checkInData.check_in_id);
+      setDailyCount(c => c + 1);
       return checkInData.check_in_id;
     } catch (err) {
       console.log('[CheckIn] error:', err);
@@ -1560,6 +1600,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
 
   const isRecording = recordingState === 'recording';
   const isProcessing = recordingState === 'processing';
+  const isAtLimit = dailyCountLoaded && dailyCount >= DAILY_CHECKIN_LIMIT;
 
   return (
     <View style={checkIn.container}>
@@ -1610,9 +1651,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           <>
             <TouchableOpacity
               style={checkIn.micOuter}
-              activeOpacity={isProcessing ? 1 : 0.9}
-              onPress={isProcessing ? undefined : handleMicPress}
-              disabled={isProcessing}
+              activeOpacity={isProcessing || isAtLimit ? 1 : 0.9}
+              onPress={isProcessing || isAtLimit ? undefined : handleMicPress}
+              disabled={isProcessing || isAtLimit}
             >
               {isRecording && (
                 <Animated.View style={[checkIn.ring, { transform: [{ scale: ringPulse }] }]} />
@@ -1621,6 +1662,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 checkIn.micButton,
                 isRecording && checkIn.micButtonRecording,
                 isProcessing && checkIn.micButtonProcessing,
+                isAtLimit && checkIn.micButtonDisabled,
                 { transform: [{ scale: pulse }] },
               ]}>
                 <MaterialCommunityIcons name="microphone" size={28} color="#FFFFFF" />
@@ -1628,13 +1670,24 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             </TouchableOpacity>
 
             <Text style={checkIn.listening}>
-              {isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
+              {isAtLimit ? 'Daily limit reached' : isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
             </Text>
 
-            {recordingState === 'idle' && !transcription && (
-              <Text style={checkIn.hint}>
-                Tap the mic and tell me about {dogName || 'your dog'}'s morning
+            {isAtLimit ? (
+              <Text style={checkIn.rateLimitMsg}>
+                You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. Come back tomorrow.
               </Text>
+            ) : (
+              <>
+                {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
+                  <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
+                )}
+                {recordingState === 'idle' && !transcription && (
+                  <Text style={checkIn.hint}>
+                    Tap the mic and tell me about {dogName || 'your dog'}'s morning
+                  </Text>
+                )}
+              </>
             )}
 
             {!!transcription && (
@@ -3480,6 +3533,26 @@ const checkIn = StyleSheet.create({
   micButtonProcessing: {
     backgroundColor: '#9CA3AF',
     shadowColor: '#9CA3AF',
+  },
+  micButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  rateCounter: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  rateLimitMsg: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 21,
+    paddingHorizontal: 32,
+    marginTop: 4,
   },
   listening: {
     fontSize: 14,
