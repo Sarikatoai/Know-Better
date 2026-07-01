@@ -33,6 +33,25 @@ const AUTH_REDIRECT_URL = Platform.OS === 'web'
   ? 'http://localhost:8081'
   : 'exp://w-kgbem-anonymous-8081.exp.direct';
 
+// ─── Design Tokens ───────────────────────────────────────────────────────────
+
+const T = {
+  color: {
+    teal:      '#0F6E56',
+    charcoal:  '#1F2937',
+    offWhite:  '#FAFAF9',
+    gray600:   '#9CA3AF',
+    gray300:   '#E5E7EB',
+    gray100:   '#F3F4F6',
+    amber:     '#D97706',
+    orange:    '#EA580C',
+    red:       '#DC2626',
+    green:     '#059669',
+  },
+  space: { xs: 8, sm: 16, md: 24, lg: 32, xl: 48 },
+  radius: { btn: 4, card: 8, input: 4, modal: 12 },
+};
+
 // ─── Mood data ───────────────────────────────────────────────────────────────
 
 const getMoodOptions = (sex) => {
@@ -156,7 +175,7 @@ function DogNameScreen({ navigation }) {
         <TextInput
           style={dogName.input}
           placeholder="Enter your dog's name"
-          placeholderTextColor="#AAAAAA"
+          placeholderTextColor="#9CA3AF"
           value={name}
           onChangeText={setName}
           autoFocus
@@ -164,7 +183,7 @@ function DogNameScreen({ navigation }) {
         />
 
         <TouchableOpacity
-          style={[dogName.button, { backgroundColor: name.trim() ? '#0F6E56' : '#8CB5A8' }]}
+          style={[dogName.button, { backgroundColor: name.trim() ? '#0F6E56' : '#E5E7EB' }]}
           activeOpacity={0.85}
           disabled={!name.trim()}
           onPress={() => navigation.navigate('DogBreed', { dogName: name.trim() })}
@@ -208,7 +227,7 @@ function DogBreedScreen({ navigation, route }) {
         <TextInput
           style={dogBreed.input}
           placeholder={`What breed is ${dogName}?`}
-          placeholderTextColor="#AAAAAA"
+          placeholderTextColor="#9CA3AF"
           value={breed}
           onChangeText={(text) => {
             setBreed(text);
@@ -273,7 +292,7 @@ function DogBreedScreen({ navigation, route }) {
       </View>
 
       <TouchableOpacity
-        style={[dogBreed.button, { backgroundColor: breed.trim() && sex ? '#0F6E56' : '#8CB5A8' }]}
+        style={[dogBreed.button, { backgroundColor: breed.trim() && sex ? '#0F6E56' : '#E5E7EB' }]}
         activeOpacity={0.85}
         disabled={!breed.trim() || !sex}
         onPress={() => navigation.navigate('DogAge', { dogName, breed: breed.trim(), sex })}
@@ -312,7 +331,7 @@ function DogAgeScreen({ navigation, route }) {
           <MaterialCommunityIcons
             name={showDropdown ? 'chevron-up' : 'chevron-down'}
             size={20}
-            color="#AAAAAA"
+            color="#9CA3AF"
           />
         </TouchableOpacity>
 
@@ -347,7 +366,7 @@ function DogAgeScreen({ navigation, route }) {
       </View>
 
       <TouchableOpacity
-        style={[dogAge.button, { backgroundColor: selectedAge ? '#0F6E56' : '#8CB5A8' }]}
+        style={[dogAge.button, { backgroundColor: selectedAge ? '#0F6E56' : '#E5E7EB' }]}
         activeOpacity={0.85}
         disabled={!selectedAge}
         onPress={() => navigation.navigate('DogHealth', { dogName, breed, sex, age: selectedAge })}
@@ -403,7 +422,7 @@ function DogHealthScreen({ navigation, route }) {
             <TextInput
               style={dogHealth.input}
               placeholder="Tell me a little about it — I'll keep it in mind."
-              placeholderTextColor="#AAAAAA"
+              placeholderTextColor="#9CA3AF"
               value={notes}
               onChangeText={setNotes}
               multiline
@@ -468,7 +487,7 @@ function DogMoodScreen({ navigation, route }) {
 
       <View style={dogMood.footer}>
         <TouchableOpacity
-          style={[dogMood.button, { backgroundColor: selectedMood ? '#0F6E56' : '#8CB5A8' }]}
+          style={[dogMood.button, { backgroundColor: selectedMood ? '#0F6E56' : '#E5E7EB' }]}
           activeOpacity={0.85}
           disabled={!selectedMood}
           onPress={() => navigation.navigate('Account', { dogName, breed, sex, age, hasCondition, notes, mood: selectedMood })}
@@ -550,7 +569,7 @@ function AccountScreen({ navigation, route }) {
             <TextInput
               style={account.input}
               placeholder="What should I call you?"
-              placeholderTextColor="#AAAAAA"
+              placeholderTextColor="#9CA3AF"
               value={userName}
               onChangeText={setUserName}
               autoCapitalize="words"
@@ -563,7 +582,7 @@ function AccountScreen({ navigation, route }) {
             <TextInput
               style={account.input}
               placeholder="I'll send your code here"
-              placeholderTextColor="#AAAAAA"
+              placeholderTextColor="#9CA3AF"
               value={email}
               onChangeText={(val) => { setEmail(val); setError(''); }}
               keyboardType="email-address"
@@ -578,7 +597,7 @@ function AccountScreen({ navigation, route }) {
 
       <View style={account.footer}>
         <TouchableOpacity
-          style={[account.button, { backgroundColor: canSubmit && !isLoading ? '#0F6E56' : '#8CB5A8' }]}
+          style={[account.button, { backgroundColor: canSubmit && !isLoading ? '#0F6E56' : '#E5E7EB' }]}
           activeOpacity={0.85}
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
@@ -630,7 +649,7 @@ function SignInScreen({ navigation }) {
           <TextInput
             style={signIn.input}
             placeholder="Your email address"
-            placeholderTextColor="#AAAAAA"
+            placeholderTextColor="#9CA3AF"
             value={email}
             onChangeText={(val) => { setEmail(val); setError(''); }}
             keyboardType="email-address"
@@ -646,7 +665,7 @@ function SignInScreen({ navigation }) {
 
       <View style={signIn.footer}>
         <TouchableOpacity
-          style={[signIn.button, { backgroundColor: canSubmit && !isLoading ? '#0F6E56' : '#8CB5A8' }]}
+          style={[signIn.button, { backgroundColor: canSubmit && !isLoading ? '#0F6E56' : '#E5E7EB' }]}
           activeOpacity={0.85}
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
@@ -702,9 +721,9 @@ function CongratulationsScreen({ navigation, route }) {
 // ─── Screen 10: Daily Check-In ───────────────────────────────────────────────
 
 const ALERT_BANNER_CONFIG = {
-  1: { bg: '#FFF8E1', text: 'I noticed a pattern', color: '#F59E0B' },
-  2: { bg: '#FFF3E0', text: 'Worth mentioning to your vet', color: '#EA580C' },
-  3: { bg: '#FEF2F2', text: 'Contact your vet today', color: '#DC2626' },
+  1: { bg: '#FFFBEB', text: 'I noticed a pattern', color: '#D97706' },
+  2: { bg: '#FFF7ED', text: 'Worth mentioning to your vet', color: '#EA580C' },
+  3: { bg: '#FEE2E2', text: 'Contact your vet today', color: '#DC2626' },
 };
 
 function CheckInScreen({ navigation, route }) {
@@ -1546,7 +1565,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     <View style={checkIn.container}>
       <StatusBar style="dark" />
 
-      <View style={[checkIn.header, { justifyContent: 'space-between' }]}>
+      <View style={checkIn.topBar}>
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
@@ -1566,15 +1585,20 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
           ) : (
             <View style={checkIn.dogHeaderPhotoPlaceholder}>
-              <MaterialCommunityIcons name="paw" size={28} color="#0F6E56" />
+              <MaterialCommunityIcons name="paw" size={24} color="#0F6E56" />
             </View>
           )}
           <Text style={checkIn.dogHeaderName}>{dogName}</Text>
-          <MaterialCommunityIcons name="chevron-down" size={16} color="#0F6E56" />
+          <MaterialCommunityIcons name="chevron-down" size={16} color="#9CA3AF" />
         </TouchableOpacity>
       ) : null}
 
-      <View style={checkIn.content}>
+      <ScrollView
+        style={checkIn.scrollArea}
+        contentContainerStyle={checkIn.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={checkIn.greeting}>Good morning, {userName || 'there'}.</Text>
         <Text style={checkIn.question}>How did {dogName || 'your dog'}'s morning go?</Text>
 
@@ -1599,7 +1623,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 isProcessing && checkIn.micButtonProcessing,
                 { transform: [{ scale: pulse }] },
               ]}>
-                <MaterialCommunityIcons name="microphone" size={38} color="#FFFFFF" />
+                <MaterialCommunityIcons name="microphone" size={28} color="#FFFFFF" />
               </Animated.View>
             </TouchableOpacity>
 
@@ -1620,32 +1644,54 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             )}
 
             {isClaudeLoading && (
-              <View style={checkIn.claudeCard}>
+              <View style={checkIn.responseCard}>
                 <Text style={checkIn.claudeThinking}>Know Better is thinking…</Text>
               </View>
             )}
 
             {!!claudeResponse && !isClaudeLoading && (
-              <View style={{ width: '100%', marginTop: 12 }}>
-                {activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && (
-                  <View style={[checkIn.alertBanner, { backgroundColor: ALERT_BANNER_CONFIG[activeAlertLevel].bg }]}>
-                    <Text style={[checkIn.alertBannerText, { color: ALERT_BANNER_CONFIG[activeAlertLevel].color }]}>
+              <>
+                <View style={[
+                  checkIn.responseCard,
+                  activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && {
+                    borderLeftWidth: 4,
+                    borderLeftColor: ALERT_BANNER_CONFIG[activeAlertLevel].color,
+                    backgroundColor: ALERT_BANNER_CONFIG[activeAlertLevel].bg,
+                  },
+                ]}>
+                  {activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && (
+                    <Text style={[checkIn.alertLabel, { color: ALERT_BANNER_CONFIG[activeAlertLevel].color }]}>
                       {ALERT_BANNER_CONFIG[activeAlertLevel].text}
                     </Text>
-                  </View>
-                )}
-                <View style={[
-                  checkIn.claudeCard,
-                  { marginTop: 0 },
-                  activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && { borderTopLeftRadius: 0, borderTopRightRadius: 0 },
-                ]}>
+                  )}
                   <Text style={checkIn.claudeText}>{claudeResponse}</Text>
                 </View>
-              </View>
+
+                <View style={checkIn.actionRow}>
+                  <TouchableOpacity
+                    style={[checkIn.actionBtn, checkIn.actionPrimary]}
+                    activeOpacity={0.85}
+                    onPress={() => navigation.navigate('Report', { dogId: currentDogId, dogName })}
+                  >
+                    <Text style={checkIn.actionPrimaryText}>View vet report</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[checkIn.actionBtn, checkIn.actionSecondary]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setTranscription('');
+                      setClaudeResponse('');
+                      setActiveAlertLevel(null);
+                    }}
+                  >
+                    <Text style={checkIn.actionSecondaryText}>Do another check-in</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
           </>
         )}
-      </View>
+      </ScrollView>
 
       <BurgerMenu
         isOpen={isMenuOpen}
@@ -2008,7 +2054,7 @@ function ReportScreen({ navigation, route }) {
           <View style={report_.popoverHeader}>
             <Text style={report_.popoverDate}>{formatShortDate(selectedDay.date)}</Text>
             <TouchableOpacity onPress={() => setSelectedDay(null)} activeOpacity={0.6}>
-              <MaterialCommunityIcons name="close" size={18} color="#888888" />
+              <MaterialCommunityIcons name="close" size={18} color="#9CA3AF" />
             </TouchableOpacity>
           </View>
           <Text style={report_.popoverText}>{describeDayPlainly(selectedDay)}</Text>
@@ -2380,7 +2426,7 @@ export default function App() {
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{
           headerTitle: '',
-          headerStyle: { backgroundColor: '#FFFFFF' },
+          headerStyle: { backgroundColor: '#FAFAF9' },
           headerTintColor: '#0F6E56',
           headerBackTitle: '',
           headerShadowVisible: false,
@@ -2483,7 +2529,7 @@ function OtpScreen({ navigation, route }) {
         {error ? <Text style={otpScreen.error}>{error}</Text> : null}
 
         <TouchableOpacity
-          style={[otpScreen.button, { backgroundColor: canSubmit && !isVerifying ? '#0F6E56' : '#8CB5A8' }]}
+          style={[otpScreen.button, { backgroundColor: canSubmit && !isVerifying ? '#0F6E56' : '#E5E7EB' }]}
           activeOpacity={0.85}
           disabled={!canSubmit || isVerifying}
           onPress={handleVerify}
@@ -2552,21 +2598,18 @@ const welcome = StyleSheet.create({
   },
   button: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     width: '100%',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
+    justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#085041',
-    letterSpacing: 0.3,
   },
   signIn: {
     fontSize: 14,
@@ -2584,8 +2627,8 @@ const welcome = StyleSheet.create({
 const dogName = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 28,
+    backgroundColor: '#FAFAF9',
+    paddingHorizontal: 16,
     justifyContent: 'flex-start',
     paddingTop: 24,
   },
@@ -2598,36 +2641,40 @@ const dogName = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#0F6E56',
+    color: '#1F2937',
   },
   step: {
-    fontSize: 13,
-    color: '#999999',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     fontSize: 16,
-    color: '#111111',
-    backgroundColor: '#F7F7F7',
+    color: '#1F2937',
+    backgroundColor: '#FAFAF9',
+    minHeight: 44,
   },
   button: {
     backgroundColor: '#0F6E56',
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonDisabled: {
     opacity: 0.4,
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
 });
 
@@ -2636,8 +2683,8 @@ const dogName = StyleSheet.create({
 const dogAge = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 28,
+    backgroundColor: '#FAFAF9',
+    paddingHorizontal: 16,
     paddingTop: 24,
     gap: 24,
   },
@@ -2647,16 +2694,18 @@ const dogAge = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#0F6E56',
+    color: '#1F2937',
   },
   step: {
-    fontSize: 13,
-    color: '#999999',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
   },
   question: {
-    fontSize: 17,
-    color: '#666666',
+    fontSize: 16,
+    color: '#9CA3AF',
     fontWeight: '400',
+    lineHeight: 24,
     marginTop: -8,
   },
   dropdownWrapper: {
@@ -2667,34 +2716,35 @@ const dogAge = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    backgroundColor: '#F7F7F7',
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#FAFAF9',
+    minHeight: 44,
   },
   triggerText: {
     fontSize: 16,
-    color: '#111111',
+    color: '#1F2937',
   },
   triggerPlaceholder: {
-    color: '#AAAAAA',
+    color: '#9CA3AF',
   },
   dropdown: {
     position: 'absolute',
-    top: 58,
+    top: 50,
     left: 0,
     right: 0,
     zIndex: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAF9',
     borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 16,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 8,
   },
   option: {
@@ -2702,34 +2752,36 @@ const dogAge = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 13,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#E5E7EB',
   },
   optionSelected: {
-    backgroundColor: '#F0F9F6',
+    backgroundColor: '#F3F4F6',
   },
   lastOption: {
     borderBottomWidth: 0,
   },
   optionText: {
     fontSize: 15,
-    color: '#222222',
+    color: '#1F2937',
   },
   optionTextSelected: {
     color: '#0F6E56',
     fontWeight: '600',
   },
   button: {
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
 });
 
@@ -2738,9 +2790,9 @@ const dogAge = StyleSheet.create({
 const otpScreen = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAF9',
     justifyContent: 'center',
-    paddingHorizontal: 36,
+    paddingHorizontal: 16,
   },
   content: {
     alignItems: 'center',
@@ -2751,34 +2803,34 @@ const otpScreen = StyleSheet.create({
     fontSize: 72,
   },
   headline: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#0F6E56',
-    letterSpacing: -0.3,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1F2937',
     textAlign: 'center',
   },
   subtext: {
     fontSize: 16,
-    color: '#666666',
+    color: '#9CA3AF',
     textAlign: 'center',
-    lineHeight: 26,
+    lineHeight: 24,
   },
   emailHighlight: {
-    color: '#333333',
+    color: '#1F2937',
     fontWeight: '600',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     fontSize: 28,
     fontWeight: '700',
-    color: '#111111',
-    backgroundColor: '#F7F7F7',
+    color: '#1F2937',
+    backgroundColor: '#FAFAF9',
     width: '100%',
     letterSpacing: 8,
+    minHeight: 44,
   },
   error: {
     fontSize: 13,
@@ -2786,16 +2838,18 @@ const otpScreen = StyleSheet.create({
     textAlign: 'center',
   },
   button: {
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
     width: '100%',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
   links: {
     alignItems: 'center',
@@ -2809,7 +2863,7 @@ const otpScreen = StyleSheet.create({
   },
   backLink: {
     fontSize: 14,
-    color: '#AAAAAA',
+    color: '#9CA3AF',
   },
 });
 
@@ -2818,8 +2872,8 @@ const otpScreen = StyleSheet.create({
 const account = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 28,
+    backgroundColor: '#FAFAF9',
+    paddingHorizontal: 16,
     paddingTop: 24,
     justifyContent: 'space-between',
   },
@@ -2834,14 +2888,14 @@ const account = StyleSheet.create({
     paddingTop: 16,
   },
   headline: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#0F6E56',
-    letterSpacing: -0.5,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1F2937',
   },
   subtext: {
-    fontSize: 17,
-    color: '#888888',
+    fontSize: 16,
+    color: '#9CA3AF',
+    lineHeight: 24,
   },
   form: {
     gap: 20,
@@ -2855,31 +2909,33 @@ const account = StyleSheet.create({
     marginTop: 4,
   },
   label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#555555',
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     fontSize: 16,
-    color: '#111111',
-    backgroundColor: '#F7F7F7',
+    color: '#1F2937',
+    backgroundColor: '#FAFAF9',
+    minHeight: 44,
   },
   button: {
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
 });
 
@@ -2888,8 +2944,8 @@ const account = StyleSheet.create({
 const signIn = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 28,
+    backgroundColor: '#FAFAF9',
+    paddingHorizontal: 16,
     paddingTop: 24,
     justifyContent: 'space-between',
   },
@@ -2904,14 +2960,14 @@ const signIn = StyleSheet.create({
     paddingTop: 16,
   },
   headline: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#0F6E56',
-    letterSpacing: -0.5,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1F2937',
   },
   subtext: {
-    fontSize: 17,
-    color: '#888888',
+    fontSize: 16,
+    color: '#9CA3AF',
+    lineHeight: 24,
   },
   form: {
     gap: 20,
@@ -2923,24 +2979,27 @@ const signIn = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     fontSize: 16,
-    color: '#111111',
-    backgroundColor: '#F7F7F7',
+    color: '#1F2937',
+    backgroundColor: '#FAFAF9',
+    minHeight: 44,
   },
   button: {
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
 });
 
@@ -2949,80 +3008,8 @@ const signIn = StyleSheet.create({
 const dogMood = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 28,
-    paddingTop: 24,
-    justifyContent: 'space-between',
-  },
-  inner: {
-    gap: 28,
-  },
-  footer: {
-    paddingBottom: 48,
-    paddingTop: 16,
-  },
-  header: {
-    gap: 8,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#0F6E56',
-  },
-  step: {
-    fontSize: 13,
-    color: '#999999',
-  },
-  question: {
-    fontSize: 17,
-    color: '#444444',
-    lineHeight: 26,
-  },
-  cards: {
-    gap: 14,
-  },
-  card: {
-    borderWidth: 1.5,
-    borderColor: '#E0E0E0',
-    borderRadius: 18,
-    paddingVertical: 28,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  cardSelected: {
-    backgroundColor: '#E1F5EE',
-    borderColor: '#0F6E56',
-  },
-  cardText: {
-    fontSize: 17,
-    fontWeight: '500',
-    color: '#333333',
-  },
-  cardTextSelected: {
-    color: '#0F6E56',
-    fontWeight: '600',
-  },
-  button: {
-    borderRadius: 50,
-    paddingVertical: 18,
-    alignItems: 'center',
-  },
-  buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-});
-
-// ─── Styles: Dog Health ──────────────────────────────────────────────────────
-
-const dogHealth = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 28,
+    backgroundColor: '#FAFAF9',
+    paddingHorizontal: 16,
     paddingTop: 24,
     justifyContent: 'space-between',
   },
@@ -3039,28 +3026,108 @@ const dogHealth = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#0F6E56',
+    color: '#1F2937',
   },
   step: {
-    fontSize: 13,
-    color: '#999999',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
   },
   question: {
-    fontSize: 17,
-    color: '#444444',
-    lineHeight: 26,
+    fontSize: 16,
+    color: '#1F2937',
+    lineHeight: 24,
+  },
+  cards: {
+    gap: 12,
+  },
+  card: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FAFAF9',
+  },
+  cardSelected: {
+    backgroundColor: '#E1F5EE',
+    borderColor: '#0F6E56',
+  },
+  cardText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  cardTextSelected: {
+    color: '#0F6E56',
+    fontWeight: '600',
+  },
+  button: {
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#FFFFFF',
+  },
+});
+
+// ─── Styles: Dog Health ──────────────────────────────────────────────────────
+
+const dogHealth = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FAFAF9',
+    paddingHorizontal: 16,
+    paddingTop: 24,
+    justifyContent: 'space-between',
+  },
+  inner: {
+    gap: 24,
+  },
+  footer: {
+    paddingBottom: 48,
+    paddingTop: 16,
+  },
+  header: {
+    gap: 8,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  step: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+  },
+  question: {
+    fontSize: 16,
+    color: '#1F2937',
+    lineHeight: 24,
   },
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#F0F0F0',
-    borderRadius: 50,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
     padding: 4,
   },
   toggleOption: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 50,
+    borderRadius: 6,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   toggleOptionActive: {
     backgroundColor: '#0F6E56',
@@ -3068,7 +3135,7 @@ const dogHealth = StyleSheet.create({
   toggleText: {
     fontSize: 15,
     fontWeight: '500',
-    color: '#888888',
+    color: '#9CA3AF',
   },
   toggleTextActive: {
     color: '#FFFFFF',
@@ -3078,29 +3145,31 @@ const dogHealth = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 16,
-    padding: 16,
-    fontSize: 15,
-    color: '#111111',
-    backgroundColor: '#F7F7F7',
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    padding: 12,
+    fontSize: 16,
+    color: '#1F2937',
+    backgroundColor: '#FAFAF9',
     minHeight: 110,
   },
   hint: {
     fontSize: 13,
-    color: '#AAAAAA',
+    color: '#9CA3AF',
   },
   button: {
     backgroundColor: '#0F6E56',
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
 });
 
@@ -3109,8 +3178,8 @@ const dogHealth = StyleSheet.create({
 const dogBreed = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 28,
+    backgroundColor: '#FAFAF9',
+    paddingHorizontal: 16,
     paddingTop: 24,
     gap: 24,
   },
@@ -3120,57 +3189,59 @@ const dogBreed = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#0F6E56',
+    color: '#1F2937',
   },
   step: {
-    fontSize: 13,
-    color: '#999999',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
   },
   inputWrapper: {
     zIndex: 10,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     fontSize: 16,
-    color: '#111111',
-    backgroundColor: '#F7F7F7',
+    color: '#1F2937',
+    backgroundColor: '#FAFAF9',
+    minHeight: 44,
   },
   dropdown: {
     position: 'absolute',
-    top: 58,
+    top: 50,
     left: 0,
     right: 0,
     zIndex: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAF9',
     borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 16,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 8,
   },
   suggestionItem: {
     paddingVertical: 13,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#E5E7EB',
   },
   specialItem: {
-    backgroundColor: '#F0F9F6',
+    backgroundColor: '#F3F4F6',
   },
   lastItem: {
     borderBottomWidth: 0,
   },
   suggestionText: {
     fontSize: 15,
-    color: '#222222',
+    color: '#1F2937',
   },
   specialText: {
     color: '#0F6E56',
@@ -3180,20 +3251,23 @@ const dogBreed = StyleSheet.create({
     gap: 8,
   },
   sexLabel: {
-    fontSize: 13,
-    color: '#999999',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
   },
   sexToggle: {
     flexDirection: 'row',
-    backgroundColor: '#F0F0F0',
-    borderRadius: 50,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
     padding: 4,
   },
   sexOption: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 50,
+    borderRadius: 6,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   sexOptionActive: {
     backgroundColor: '#0F6E56',
@@ -3201,21 +3275,23 @@ const dogBreed = StyleSheet.create({
   sexText: {
     fontSize: 15,
     fontWeight: '500',
-    color: '#888888',
+    color: '#9CA3AF',
   },
   sexTextActive: {
     color: '#FFFFFF',
   },
   button: {
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
 });
 
@@ -3285,21 +3361,18 @@ const congrats = StyleSheet.create({
   },
   button: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 50,
-    paddingVertical: 18,
+    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 44,
     width: '100%',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
+    justifyContent: 'center',
   },
   buttonText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#085041',
-    letterSpacing: 0.3,
   },
 });
 
@@ -3308,15 +3381,15 @@ const congrats = StyleSheet.create({
 const checkIn = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: 64,
-    paddingHorizontal: 32,
-    paddingBottom: 48,
+    backgroundColor: '#FAFAF9',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
   },
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
     marginBottom: 8,
   },
   brand: {
@@ -3325,155 +3398,190 @@ const checkIn = StyleSheet.create({
     color: '#0F6E56',
     letterSpacing: 0.3,
   },
-  content: {
-    flex: 1,
+  dogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    marginBottom: 24,
+  },
+  dogHeaderPhoto: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  dogHeaderPhotoPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+  },
+  dogHeaderName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  scrollArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    alignItems: 'center',
+    paddingBottom: 16,
   },
   greeting: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '700',
-    color: '#085041',
+    color: '#1F2937',
     textAlign: 'center',
-    letterSpacing: -0.3,
+    lineHeight: 34,
+    marginBottom: 8,
+    width: '100%',
   },
   question: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '400',
-    color: '#888888',
+    color: '#9CA3AF',
     textAlign: 'center',
-    lineHeight: 26,
-    marginBottom: 12,
+    lineHeight: 21,
+    marginBottom: 32,
+    width: '100%',
   },
   micOuter: {
-    width: 120,
-    height: 120,
+    width: 80,
+    height: 80,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 12,
   },
   ring: {
     position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: 'rgba(220, 38, 38, 0.2)',
   },
   micButton: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#0F6E56',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#0F6E56',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   micButtonRecording: {
     backgroundColor: '#DC2626',
     shadowColor: '#DC2626',
   },
   micButtonProcessing: {
-    backgroundColor: '#AAAAAA',
-    shadowColor: '#AAAAAA',
+    backgroundColor: '#9CA3AF',
+    shadowColor: '#9CA3AF',
   },
   listening: {
-    fontSize: 15,
-    fontStyle: 'italic',
-    color: '#AAAAAA',
-    marginTop: 4,
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: 8,
   },
   hint: {
-    fontSize: 13,
-    color: '#CCCCCC',
+    fontSize: 14,
+    color: '#9CA3AF',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 21,
     paddingHorizontal: 16,
+    marginTop: 4,
   },
   permissionError: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#DC2626',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 21,
     paddingHorizontal: 16,
+    marginTop: 16,
   },
   transcriptionCard: {
-    backgroundColor: '#F0F9F6',
-    borderRadius: 16,
-    padding: 20,
-    marginTop: 8,
+    backgroundColor: '#FAFAF9',
+    borderRadius: 8,
+    padding: 16,
+    marginTop: 16,
     width: '100%',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   transcriptionText: {
     fontSize: 16,
-    color: '#222222',
+    color: '#1F2937',
     lineHeight: 24,
   },
-  alertBanner: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    width: '100%',
+  alertLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
   },
-  alertBannerText: {
-    fontWeight: 'bold',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  claudeCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginTop: 12,
+  responseCard: {
+    backgroundColor: '#FAFAF9',
+    borderRadius: 8,
+    padding: 16,
+    marginTop: 16,
     width: '100%',
     borderWidth: 1,
-    borderColor: '#D6EDE7',
+    borderColor: '#E5E7EB',
   },
   claudeThinking: {
-    fontSize: 15,
-    color: '#7A9E95',
+    fontSize: 14,
+    color: '#9CA3AF',
     fontStyle: 'italic',
   },
   claudeText: {
     fontSize: 16,
-    color: '#1A3C34',
-    lineHeight: 26,
+    color: '#1F2937',
+    lineHeight: 24,
   },
-  dogHeader: {
+  actionRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 60,
-    marginBottom: 8,
+    gap: 8,
+    width: '100%',
+    marginTop: 24,
   },
-  dogHeaderPhoto: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-  },
-  dogHeaderPhotoPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#E8F3EF',
+  actionBtn: {
+    flex: 1,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 4,
   },
-  dogHeaderName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0F6E56',
+  actionPrimary: {
+    backgroundColor: '#0F6E56',
+  },
+  actionSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#1F2937',
+  },
+  actionPrimaryText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#FFFFFF',
+  },
+  actionSecondaryText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
   },
 });
 
 const report_ = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAF9',
   },
   content: {
     paddingBottom: 48,
@@ -3484,41 +3592,44 @@ const report_ = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    fontSize: 15,
-    color: '#888888',
+    fontSize: 14,
+    color: '#9CA3AF',
   },
   hero: {
     width: '100%',
-    paddingVertical: 20,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    borderRadius: 8,
   },
   heroLabel: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#FFFFFF',
+    textAlign: 'center',
   },
   dayCountBlock: {
     alignItems: 'center',
-    paddingTop: 36,
-    paddingBottom: 28,
+    paddingTop: 32,
+    paddingBottom: 24,
   },
   dayCountNumber: {
     fontSize: 48,
     fontWeight: '800',
-    color: '#1A3C34',
+    color: '#1F2937',
     letterSpacing: -0.5,
   },
   dayCountLabel: {
     fontSize: 14,
-    color: '#888888',
+    color: '#9CA3AF',
     marginTop: 4,
   },
   weekLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#888888',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
     textAlign: 'center',
   },
   weekRow: {
@@ -3543,16 +3654,18 @@ const report_ = StyleSheet.create({
   },
   weekPageIndicator: {
     fontSize: 12,
-    color: '#AAAAAA',
+    color: '#9CA3AF',
     textAlign: 'center',
     marginTop: 10,
   },
   popover: {
-    marginHorizontal: 24,
+    marginHorizontal: 16,
     marginTop: 16,
-    backgroundColor: '#F7F7F7',
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: '#FAFAF9',
+    borderRadius: 8,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   popoverHeader: {
     flexDirection: 'row',
@@ -3562,19 +3675,19 @@ const report_ = StyleSheet.create({
   },
   popoverDate: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#1A3C34',
+    fontWeight: '600',
+    color: '#1F2937',
   },
   popoverText: {
     fontSize: 13,
-    color: '#444444',
+    color: '#1F2937',
     lineHeight: 19,
   },
   signalGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 24,
-    marginTop: 32,
+    paddingHorizontal: 16,
+    marginTop: 24,
   },
   signalTile: {
     width: '33.33%',
@@ -3592,11 +3705,11 @@ const report_ = StyleSheet.create({
     height: 9,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: '#FFFFFF',
+    borderColor: '#FAFAF9',
   },
   signalLabel: {
-    fontSize: 11,
-    color: '#666666',
+    fontSize: 12,
+    color: '#9CA3AF',
     marginTop: 6,
   },
   signalBadge: {
@@ -3604,7 +3717,7 @@ const report_ = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#1A3C34',
+    backgroundColor: '#1F2937',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
@@ -3616,37 +3729,37 @@ const report_ = StyleSheet.create({
   },
   pillStrip: {
     marginTop: 8,
-    paddingLeft: 24,
+    paddingLeft: 16,
   },
   pill: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 14,
+    borderRadius: 4,
     marginRight: 8,
   },
   pillText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#FFFFFF',
   },
   expandedDetail: {
     marginTop: 10,
-    marginHorizontal: 24,
+    marginHorizontal: 16,
     fontSize: 13,
-    color: '#444444',
+    color: '#1F2937',
     lineHeight: 19,
   },
   caption: {
-    marginTop: 32,
-    marginHorizontal: 24,
-    fontSize: 15,
-    color: '#1A3C34',
-    lineHeight: 22,
+    marginTop: 24,
+    marginHorizontal: 16,
+    fontSize: 14,
+    color: '#9CA3AF',
+    lineHeight: 21,
     textAlign: 'center',
   },
   historyLink: {
     marginTop: 20,
-    fontSize: 13,
+    fontSize: 14,
     color: '#0F6E56',
     fontWeight: '600',
     textAlign: 'center',
@@ -3656,22 +3769,22 @@ const report_ = StyleSheet.create({
 const reportHistory = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAF9',
   },
   content: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 48,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1A3C34',
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
     marginBottom: 16,
   },
   empty: {
     fontSize: 14,
-    color: '#888888',
+    color: '#9CA3AF',
     textAlign: 'center',
     marginTop: 24,
   },
@@ -3680,7 +3793,7 @@ const reportHistory = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#E5E7EB',
     gap: 12,
   },
   dot: {
@@ -3691,11 +3804,11 @@ const reportHistory = StyleSheet.create({
   rowDate: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1A3C34',
+    color: '#1F2937',
   },
   rowStatus: {
     fontSize: 13,
-    color: '#888888',
+    color: '#9CA3AF',
     marginTop: 2,
   },
 });
