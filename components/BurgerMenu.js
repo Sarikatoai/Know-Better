@@ -6,7 +6,6 @@ import {
   Alert,
   Animated,
   Image,
-  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -16,9 +15,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-const TEAL = '#0F6E56';
-const RED = '#DC2626';
+const C = {
+  teal:     '#0F6E56',
+  charcoal: '#1F2937',
+  offWhite: '#FAFAF9',
+  gray600:  '#9CA3AF',
+  gray300:  '#E5E7EB',
+  red:      '#DC2626',
+};
 
 export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propDogName, dogId: propDogId }) {
   const [dogProfile, setDogProfile] = useState(null);
@@ -71,11 +77,10 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
   };
 
   const handlePhotoUpload = async () => {
-    const id = dogId;
-    if (!id) return;
+    if (!dogId) return;
     setPhotoLoading(true);
     setPhotoError('');
-    const result = await pickAndUploadDogPhoto(id);
+    const result = await pickAndUploadDogPhoto(dogId);
     setPhotoLoading(false);
     if (result.canceled) return;
     if (result.error) {
@@ -130,12 +135,6 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
   };
 
-  const openLink = (url) => {
-    Linking.openURL(url).catch(() =>
-      Alert.alert('Unable to open link', 'Please try again later.')
-    );
-  };
-
   const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
 
   return (
@@ -147,104 +146,108 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
     >
       <View style={styles.overlay}>
         <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}>
-          <View style={styles.drawerHeader}>
+
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Know Better</Text>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
-              <Text style={styles.closeIcon}>✕</Text>
+              <MaterialCommunityIcons name="close" size={18} color={C.teal} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.menuContent}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
-            {/* Section 1 — Vet Report */}
+            {/* 1 — Vet Report */}
             <TouchableOpacity
-              style={styles.section}
+              style={styles.menuRow}
               activeOpacity={0.7}
-              onPress={() => {
-                onClose();
-                navigation.navigate('Report', { dogId, dogName });
-              }}
+              onPress={() => { onClose(); navigation.navigate('Report', { dogId, dogName }); }}
             >
-              <Text style={styles.sectionTitle}>View vet report</Text>
-              {dogName ? (
-                <Text style={styles.sectionSubtitle}>{dogName}'s vet report</Text>
-              ) : null}
+              <MaterialCommunityIcons name="clipboard-pulse-outline" size={20} color={C.charcoal} style={styles.rowIcon} />
+              <View style={styles.rowBody}>
+                <Text style={styles.rowLabel}>View vet report</Text>
+                {dogName ? <Text style={styles.rowSub}>{dogName}'s report</Text> : null}
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={C.gray300} />
             </TouchableOpacity>
 
             <View style={styles.divider} />
 
-            {/* Section 2 — Notifications */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Notifications</Text>
+            {/* 2 — Notifications */}
+            <View style={styles.sectionBlock}>
+              <Text style={styles.sectionHeading}>Notifications</Text>
               <View style={styles.toggleRow}>
                 <Switch
                   value={notificationsEnabled}
                   onValueChange={handleNotificationsToggle}
-                  trackColor={{ false: '#E0E0E0', true: '#7BBFAD' }}
-                  thumbColor={notificationsEnabled ? TEAL : '#AAAAAA'}
+                  trackColor={{ false: C.gray300, true: '#7BBFAD' }}
+                  thumbColor={notificationsEnabled ? C.teal : C.gray600}
                   disabled={isLoadingNotif}
+                  style={styles.toggle}
                 />
                 <Text style={styles.toggleLabel}>
-                  {notificationsEnabled ? 'Notifications on' : 'Notifications off'}
+                  {notificationsEnabled ? 'On' : 'Off'}
                 </Text>
               </View>
             </View>
 
             <View style={styles.divider} />
 
-            {/* Section 3 — Dog Profile */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Dog profile</Text>
-              <View style={styles.photoSection}>
-                {photoUrl ? (
-                  <Image source={{ uri: photoUrl }} style={styles.dogPhoto} />
-                ) : (
-                  <View style={styles.dogPhotoPlaceholder}>
-                    <Text style={styles.pawEmoji}>🐾</Text>
-                  </View>
-                )}
-                <TouchableOpacity onPress={handlePhotoUpload} disabled={photoLoading} activeOpacity={0.7}>
-                  <Text style={styles.photoLink}>
-                    {photoLoading ? 'Uploading…' : photoUrl ? 'Edit photo' : 'Add photo'}
-                  </Text>
-                </TouchableOpacity>
-                {photoError ? <Text style={styles.photoError}>{photoError}</Text> : null}
-              </View>
-              {dogProfile ? (
-                <View style={styles.profileFields}>
-                  <ProfileRow label="Name" value={dogProfile.dog_name} />
-                  <ProfileRow label="Breed" value={dogProfile.breed} />
-                  <ProfileRow label="Sex" value={capitalize(dogProfile.sex)} />
-                  <ProfileRow label="Age" value={calculateAge(dogProfile.date_of_birth)} />
-                  {dogProfile.pre_existing_health_conditions ? (
-                    <ProfileRow
-                      label="Health conditions"
-                      value={dogProfile.pre_existing_health_conditions}
-                    />
-                  ) : null}
+            {/* 3 — Dog Profile */}
+            <View style={styles.sectionBlock}>
+              <Text style={styles.sectionHeading}>Dog profile</Text>
+              <View style={styles.profileCard}>
+                <View style={styles.photoRow}>
+                  {photoUrl ? (
+                    <Image source={{ uri: photoUrl }} style={styles.dogPhoto} />
+                  ) : (
+                    <View style={styles.dogPhotoPlaceholder}>
+                      <MaterialCommunityIcons name="paw" size={22} color={C.teal} />
+                    </View>
+                  )}
+                  <TouchableOpacity onPress={handlePhotoUpload} disabled={photoLoading} activeOpacity={0.7}>
+                    <Text style={styles.photoLink}>
+                      {photoLoading ? 'Uploading…' : photoUrl ? 'Edit photo' : 'Add photo'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              ) : (
-                <Text style={styles.loadingText}>Loading…</Text>
-              )}
+                {photoError ? <Text style={styles.photoError}>{photoError}</Text> : null}
+                {dogProfile ? (
+                  <View style={styles.profileFields}>
+                    <ProfileRow label="Name"  value={dogProfile.dog_name} />
+                    <ProfileRow label="Breed" value={dogProfile.breed} />
+                    <ProfileRow label="Sex"   value={capitalize(dogProfile.sex)} />
+                    <ProfileRow label="Age"   value={calculateAge(dogProfile.date_of_birth)} />
+                    {dogProfile.pre_existing_health_conditions ? (
+                      <ProfileRow label="Conditions" value={dogProfile.pre_existing_health_conditions} />
+                    ) : null}
+                  </View>
+                ) : (
+                  <Text style={styles.loadingText}>Loading…</Text>
+                )}
+              </View>
             </View>
 
             <View style={styles.divider} />
 
-            {/* Section 4 — Account Settings */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Account settings</Text>
+            {/* 4 — Account Settings */}
+            <View style={styles.sectionBlock}>
+              <Text style={styles.sectionHeading}>Account settings</Text>
               <View style={styles.linkList}>
-                <AccountLink label="Help" onPress={() => { onClose(); navigation.navigate('Help'); }} />
-                <AccountLink label="Privacy policy" onPress={() => { onClose(); navigation.navigate('Privacy'); }} />
+                <AccountLink label="Help"            onPress={() => { onClose(); navigation.navigate('Help'); }} />
+                <AccountLink label="Privacy policy"  onPress={() => { onClose(); navigation.navigate('Privacy'); }} />
                 <AccountLink label="Terms of service" onPress={() => { onClose(); navigation.navigate('Terms'); }} />
               </View>
             </View>
 
             <View style={styles.divider} />
 
-            {/* Section 5 — Sign Out */}
-            <TouchableOpacity style={styles.section} activeOpacity={0.7} onPress={handleSignOut}>
-              <Text style={styles.signOutText}>Sign out</Text>
-            </TouchableOpacity>
+            {/* 5 — Sign Out */}
+            <View style={styles.sectionBlock}>
+              <TouchableOpacity style={styles.signOutBtn} activeOpacity={0.85} onPress={handleSignOut}>
+                <Text style={styles.signOutText}>Sign out</Text>
+              </TouchableOpacity>
+            </View>
 
           </ScrollView>
         </Animated.View>
@@ -270,7 +273,7 @@ function AccountLink({ label, onPress }) {
   return (
     <TouchableOpacity style={styles.accountLink} activeOpacity={0.7} onPress={onPress}>
       <Text style={styles.accountLinkText}>{label}</Text>
-      <Text style={styles.accountLinkArrow}>›</Text>
+      <MaterialCommunityIcons name="chevron-right" size={18} color={C.gray300} />
     </TouchableOpacity>
   );
 }
@@ -284,99 +287,140 @@ const styles = StyleSheet.create({
   drawer: {
     width: '80%',
     maxWidth: 320,
-    backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'ios' ? 48 : 32,
+    backgroundColor: C.offWhite,
+    paddingTop: Platform.OS === 'ios' ? 52 : 36,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 12,
-  },
-  drawerHeader: {
-    alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingBottom: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 16,
   },
   overlayDismiss: {
     flex: 1,
   },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: C.gray300,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: C.charcoal,
+  },
   closeBtn: {
     width: 32,
     height: 32,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#E8F3EF',
   },
-  closeIcon: {
-    fontSize: 18,
-    color: '#888888',
-  },
-  menuContent: {
+
+  scrollContent: {
     paddingBottom: 48,
   },
-  section: {
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: TEAL,
-    marginBottom: 8,
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: '#888888',
-  },
+
+  // Divider
   divider: {
     height: 1,
-    backgroundColor: '#F0F0F0',
-    marginHorizontal: 24,
+    backgroundColor: C.gray300,
   },
+
+  // Generic section block
+  sectionBlock: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  sectionHeading: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: C.charcoal,
+    marginBottom: 12,
+  },
+
+  // Vet Report row
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  rowIcon: {
+    marginRight: 12,
+  },
+  rowBody: {
+    flex: 1,
+  },
+  rowLabel: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: C.charcoal,
+  },
+  rowSub: {
+    fontSize: 13,
+    color: C.gray600,
+    marginTop: 2,
+  },
+
+  // Notifications
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 4,
+    gap: 10,
+  },
+  toggle: {
+    transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
   },
   toggleLabel: {
     fontSize: 14,
-    color: '#666666',
+    color: C.gray600,
   },
-  photoSection: {
+
+  // Dog Profile card
+  profileCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: C.gray300,
+    borderRadius: 8,
+    padding: 16,
+    gap: 12,
+  },
+  photoRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-    marginTop: 4,
+    gap: 12,
   },
   dogPhoto: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
   },
   dogPhotoPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#E8F3EF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pawEmoji: {
-    fontSize: 24,
-  },
   photoLink: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
-    color: TEAL,
+    color: C.teal,
   },
   photoError: {
     fontSize: 12,
-    color: RED,
-    textAlign: 'center',
+    color: C.red,
   },
   profileFields: {
-    gap: 10,
-    marginTop: 4,
+    gap: 8,
   },
   profileRow: {
     flexDirection: 'row',
@@ -385,44 +429,49 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   profileLabel: {
-    fontSize: 13,
-    color: '#888888',
+    fontSize: 14,
+    color: C.gray600,
     flex: 1,
   },
   profileValue: {
-    fontSize: 13,
-    color: '#1A3C34',
+    fontSize: 14,
+    color: C.charcoal,
     fontWeight: '500',
     flex: 2,
     textAlign: 'right',
   },
   loadingText: {
-    fontSize: 13,
-    color: '#AAAAAA',
-    marginTop: 4,
+    fontSize: 14,
+    color: C.gray600,
   },
+
+  // Account links
   linkList: {
-    gap: 4,
-    marginTop: 4,
+    gap: 0,
   },
   accountLink: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   accountLinkText: {
-    fontSize: 14,
-    color: '#333333',
+    fontSize: 16,
+    fontWeight: '400',
+    color: C.charcoal,
   },
-  accountLinkArrow: {
-    fontSize: 22,
-    color: '#CCCCCC',
-    lineHeight: 22,
+
+  // Sign Out button
+  signOutBtn: {
+    backgroundColor: C.red,
+    borderRadius: 4,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   signOutText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: RED,
+    fontWeight: '500',
+    color: '#FFFFFF',
   },
 });
