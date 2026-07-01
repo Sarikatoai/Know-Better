@@ -1,4 +1,5 @@
 import { supabase } from './lib/supabase';
+import { sendPushNotification, setupPushNotifications } from './lib/notifications';
 import BurgerMenu from './components/BurgerMenu';
 import DogSelectionScreen from './screens/DogSelectionScreen';
 import HelpScreen from './screens/HelpScreen';
@@ -746,6 +747,15 @@ function CheckInScreen({ navigation, route }) {
       if (!session) return;
       const userId = session.user.id;
       userIdRef.current = userId;
+
+      if (Platform.OS !== 'web') {
+        const { token } = await setupPushNotifications();
+        if (token) {
+          await supabase.from('users').update({ push_token: token }).eq('user_id', userId);
+          console.log('[Notifications] push_token saved to users table');
+        }
+      }
+
       const [userResult, dogResult] = await Promise.all([
         supabase.from('users').select('first_name').eq('user_id', userId).single(),
         paramDogId
@@ -1253,6 +1263,11 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         setClaudeResponse(responseText);
         setActiveAlertLevel(alertLevel);
         saveResponse(checkInId, responseText);
+        if (alertLevel === 2 || alertLevel === 3) {
+          setTimeout(() => {
+            sendPushNotification(userIdRef.current, name, `level_${alertLevel}`, responseText);
+          }, 60000);
+        }
       }
     } catch (err) {
       console.log('[Claude] error:', err);
