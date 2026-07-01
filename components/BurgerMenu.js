@@ -125,22 +125,21 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
   };
 
   const handleSignOut = () => {
-    Alert.alert(
-      'Sign out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign out',
-          style: 'destructive',
-          onPress: async () => {
-            onClose();
-            await supabase.auth.signOut();
-            navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+    onClose();
+    setTimeout(() => {
+      Alert.alert(
+        'Sign out',
+        'Are you sure you want to sign out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign out',
+            style: 'destructive',
+            onPress: () => supabase.auth.signOut(),
           },
-        },
-      ]
-    );
+        ]
+      );
+    }, 300);
   };
 
   const openLink = (url) => {
