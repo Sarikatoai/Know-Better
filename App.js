@@ -1950,6 +1950,9 @@ function ReportScreen({ navigation, route }) {
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
+      setReport(null);
+      setSelectedDay(null);
+      setWeekIndex(null);
       let resolvedDogId = paramDogId ?? null;
       if (!resolvedDogId) {
         const { data: { session } } = await supabase.auth.getSession();
@@ -1977,7 +1980,7 @@ function ReportScreen({ navigation, route }) {
       setIsLoading(false);
     };
     load();
-  }, [reportId]);
+  }, [reportId, paramDogId]);
 
   if (isLoading) {
     return (
