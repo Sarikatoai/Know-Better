@@ -1727,23 +1727,29 @@ const SIGNAL_ICONS = {
 };
 
 const STATUS_HERO_CONFIG = {
-  all_clear: { bg: '#0F6E56', icon: 'check-circle-outline', label: 'Looking good' },
-  mostly_normal: { bg: '#F59E0B', icon: 'weather-partly-cloudy', label: 'Looking good' },
-  patterns_noted: { bg: '#EA580C', icon: 'alert-circle-outline', label: 'Worth a look' },
-  alert_fired: { bg: '#DC2626', icon: 'alert-octagon-outline', label: 'Mention to your vet' },
+  all_clear:     { bg: '#059669', label: "Doing well",                 text: (n) => `${n || 'Your dog'}'s doing well` },
+  mostly_normal: { bg: '#D97706', label: 'Worth checking up on',       text: () => 'Worth checking up on' },
+  patterns_noted:{ bg: '#EA580C', label: 'Worth mentioning to your vet', text: () => 'Worth mentioning to your vet' },
+  alert_fired:   { bg: '#DC2626', label: 'Contact your vet today',     text: () => 'Contact your vet today' },
 };
 
-const ALERT_PILL_COLORS = { 1: '#F59E0B', 2: '#EA580C', 3: '#DC2626' };
+const ALERT_CARD_COLORS = {
+  1: { border: '#D97706', bg: '#FFFBEB', name: 'Level 1 — Pattern noticed' },
+  2: { border: '#EA580C', bg: '#FFF7ED', name: 'Level 2 — Worth mentioning to your vet' },
+  3: { border: '#DC2626', bg: '#FEE2E2', name: 'Level 3 — Contact your vet today' },
+};
 
 const DOT_SIZE = 30;
 
+const DAY_DOT_COLORS = { 1: '#D97706', 2: '#EA580C', 3: '#DC2626' };
+
 const getDayDotStyle = (day) => {
   switch (day.status) {
-    case 'normal': return { backgroundColor: '#0F6E56' };
-    case 'concerning': return { backgroundColor: '#F59E0B' };
-    case 'alert': return { backgroundColor: ALERT_PILL_COLORS[day.alert_level] ?? '#EA580C' };
-    case 'health_event': return { backgroundColor: 'transparent', borderWidth: 2, borderColor: '#D1D5DB' };
-    default: return { backgroundColor: '#EDEDED' };
+    case 'normal':       return { backgroundColor: '#059669' };
+    case 'concerning':   return { backgroundColor: '#D97706' };
+    case 'alert':        return { backgroundColor: DAY_DOT_COLORS[day.alert_level] ?? '#EA580C' };
+    case 'health_event': return { backgroundColor: '#9CA3AF' };
+    default:             return { backgroundColor: '#E5E7EB' };
   }
 };
 
@@ -1929,7 +1935,6 @@ function ReportScreen({ navigation, route }) {
   const [report, setReport] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(null);
-  const [expandedItem, setExpandedItem] = useState(null);
   const [weekIndex, setWeekIndex] = useState(null);
 
   useEffect(() => {
@@ -1992,7 +1997,6 @@ function ReportScreen({ navigation, route }) {
 
   const { summary_data, overall_status } = report;
   const hero = STATUS_HERO_CONFIG[overall_status] ?? STATUS_HERO_CONFIG.all_clear;
-  const caption = buildCaption(overall_status, dogName, summary_data.normal_day_count, summary_data.total_days);
 
   const weeks = chunkIntoWeeks(summary_data.days);
   const activeWeekIndex = weekIndex === null ? weeks.length - 1 : weekIndex;
@@ -2005,119 +2009,110 @@ function ReportScreen({ navigation, route }) {
 
   return (
     <ScrollView style={report_.container} contentContainerStyle={report_.content}>
-      <View style={[report_.hero, { backgroundColor: hero.bg }]}>
-        <MaterialCommunityIcons name={hero.icon} size={24} color="#FFFFFF" />
-        <Text style={report_.heroLabel}>{hero.label}</Text>
+
+      {/* 1 — Status Hero */}
+      <View style={[report_.heroCard, { backgroundColor: hero.bg }]}>
+        <Text style={report_.heroText}>{hero.text(dogName)}</Text>
       </View>
 
-      <View style={report_.dayCountBlock}>
-        <Text style={report_.dayCountNumber}>{summary_data.normal_day_count} / {summary_data.total_days}</Text>
-        <Text style={report_.dayCountLabel}>normal days</Text>
+      {/* 2 — Day Count */}
+      <View style={report_.card}>
+        <Text style={report_.dayNum}>{summary_data.normal_day_count}</Text>
+        <Text style={report_.daySubtitle}>of {summary_data.total_days} normal days</Text>
+        <Text style={report_.dayHelper}>Last 7 days used to calculate baseline</Text>
       </View>
 
-      <Text style={report_.weekLabel}>{weekRangeLabel}</Text>
-      <View style={report_.weekRow}>
-        <TouchableOpacity
-          onPress={goToPrevWeek}
-          disabled={activeWeekIndex === 0}
-          activeOpacity={0.6}
-          style={report_.weekArrow}
-        >
-          <MaterialCommunityIcons name="chevron-left" size={26} color={activeWeekIndex === 0 ? '#DDDDDD' : '#0F6E56'} />
-        </TouchableOpacity>
-
-        <View style={report_.dotsRow}>
-          {currentWeek.map((day) => (
-            <TouchableOpacity
-              key={day.date}
-              style={[report_.dot, getDayDotStyle(day)]}
-              activeOpacity={0.7}
-              onPress={() => setSelectedDay(day)}
-            />
-          ))}
-        </View>
-
-        <TouchableOpacity
-          onPress={goToNextWeek}
-          disabled={activeWeekIndex === weeks.length - 1}
-          activeOpacity={0.6}
-          style={report_.weekArrow}
-        >
-          <MaterialCommunityIcons name="chevron-right" size={26} color={activeWeekIndex === weeks.length - 1 ? '#DDDDDD' : '#0F6E56'} />
-        </TouchableOpacity>
-      </View>
-
-      <Text style={report_.weekPageIndicator}>Week {activeWeekIndex + 1} of {weeks.length}</Text>
-
-      {selectedDay && (
-        <View style={report_.popover}>
-          <View style={report_.popoverHeader}>
-            <Text style={report_.popoverDate}>{formatShortDate(selectedDay.date)}</Text>
-            <TouchableOpacity onPress={() => setSelectedDay(null)} activeOpacity={0.6}>
-              <MaterialCommunityIcons name="close" size={18} color="#9CA3AF" />
-            </TouchableOpacity>
+      {/* 3 — Week Carousel */}
+      <View style={report_.card}>
+        <Text style={report_.weekRangeLabel}>{weekRangeLabel}</Text>
+        <View style={report_.weekRow}>
+          <TouchableOpacity
+            onPress={goToPrevWeek}
+            disabled={activeWeekIndex === 0}
+            activeOpacity={0.6}
+            style={report_.weekArrow}
+          >
+            <MaterialCommunityIcons name="chevron-left" size={26} color={activeWeekIndex === 0 ? '#E5E7EB' : '#0F6E56'} />
+          </TouchableOpacity>
+          <View style={report_.dotsRow}>
+            {currentWeek.map((day) => (
+              <TouchableOpacity
+                key={day.date}
+                style={[report_.dot, getDayDotStyle(day)]}
+                activeOpacity={0.7}
+                onPress={() => setSelectedDay(selectedDay?.date === day.date ? null : day)}
+              />
+            ))}
           </View>
-          <Text style={report_.popoverText}>{describeDayPlainly(selectedDay)}</Text>
+          <TouchableOpacity
+            onPress={goToNextWeek}
+            disabled={activeWeekIndex === weeks.length - 1}
+            activeOpacity={0.6}
+            style={report_.weekArrow}
+          >
+            <MaterialCommunityIcons name="chevron-right" size={26} color={activeWeekIndex === weeks.length - 1 ? '#E5E7EB' : '#0F6E56'} />
+          </TouchableOpacity>
+        </View>
+        <Text style={report_.weekPageIndicator}>Week {activeWeekIndex + 1} of {weeks.length}</Text>
+
+        {selectedDay && (
+          <View style={report_.popover}>
+            <View style={report_.popoverHeader}>
+              <Text style={report_.popoverDate}>{formatShortDate(selectedDay.date)}</Text>
+              <TouchableOpacity onPress={() => setSelectedDay(null)} activeOpacity={0.6}>
+                <MaterialCommunityIcons name="close" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+            <Text style={report_.popoverText}>{describeDayPlainly(selectedDay)}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* 4 — Signal Grid */}
+      <View style={report_.card}>
+        <Text style={report_.cardSectionTitle}>Health signals</Text>
+        <View style={report_.signalGrid}>
+          {SIGNAL_DIMS.map((dim) => {
+            const count = summary_data.signal_concerning_counts[dim] ?? 0;
+            return (
+              <View key={dim} style={report_.signalTile}>
+                <MaterialCommunityIcons name={SIGNAL_ICONS[dim]} size={26} color="#1F2937" />
+                <Text style={report_.signalLabel}>{SIGNAL_LABELS[dim]}</Text>
+                {count > 0 && (
+                  <View style={report_.signalBadge}>
+                    <Text style={report_.signalBadgeText}>{count} {count === 1 ? 'day' : 'days'}</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* 5 — Alert History */}
+      {summary_data.alerts.length > 0 && (
+        <View style={report_.alertStack}>
+          {summary_data.alerts.slice().reverse().map((a, i) => {
+            const lc = ALERT_CARD_COLORS[a.level] ?? ALERT_CARD_COLORS[1];
+            return (
+              <View key={i} style={[report_.alertCard, { borderLeftColor: lc.border, backgroundColor: lc.bg }]}>
+                <Text style={report_.alertDate}>{formatShortDate(a.date)}</Text>
+                <Text style={report_.alertLevel}>{lc.name}</Text>
+                {a.reason ? <Text style={report_.alertReason}>{a.reason}</Text> : null}
+              </View>
+            );
+          })}
         </View>
       )}
 
-      <View style={report_.signalGrid}>
-        {SIGNAL_DIMS.map((dim) => {
-          const count = summary_data.signal_concerning_counts[dim] ?? 0;
-          const dotColor = count === 0 ? '#0F6E56' : count <= 2 ? '#F59E0B' : '#EA580C';
-          return (
-            <View key={dim} style={report_.signalTile}>
-              <View style={report_.signalIconWrap}>
-                <MaterialCommunityIcons name={SIGNAL_ICONS[dim]} size={26} color="#1A3C34" />
-                <View style={[report_.signalDot, { backgroundColor: dotColor }]} />
-              </View>
-              <Text style={report_.signalLabel}>{SIGNAL_LABELS[dim]}</Text>
-              {count > 0 && (
-                <View style={[report_.signalBadge, { backgroundColor: dotColor }]}>
-                  <Text style={report_.signalBadgeText}>{count}</Text>
-                </View>
-              )}
-            </View>
-          );
-        })}
-      </View>
-
-      {(summary_data.alerts.length > 0 || summary_data.health_events.length > 0) && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={report_.pillStrip}>
-          {summary_data.alerts.map((a, i) => (
-            <TouchableOpacity
-              key={`alert-${i}`}
-              style={[report_.pill, { backgroundColor: ALERT_PILL_COLORS[a.level] ?? '#F59E0B' }]}
-              activeOpacity={0.7}
-              onPress={() => setExpandedItem({ type: 'alert', ...a })}
-            >
-              <Text style={report_.pillText}>{formatShortDate(a.date)}</Text>
-            </TouchableOpacity>
-          ))}
-          {summary_data.health_events.map((h, i) => (
-            <TouchableOpacity
-              key={`event-${i}`}
-              style={[report_.pill, { backgroundColor: '#9CA3AF' }]}
-              activeOpacity={0.7}
-              onPress={() => setExpandedItem({ type: 'health_event', ...h })}
-            >
-              <Text style={report_.pillText}>{formatShortDate(h.date)}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      {expandedItem && (
-        <Text style={report_.expandedDetail}>
-          {expandedItem.type === 'alert' ? expandedItem.reason : `${expandedItem.title} (${expandedItem.type})`}
-        </Text>
-      )}
-
-      <Text style={report_.caption}>{caption}</Text>
-
-      <TouchableOpacity onPress={() => navigation.navigate('ReportHistory', { dogId, dogName })} activeOpacity={0.7}>
-        <Text style={report_.historyLink}>View past reports</Text>
+      <TouchableOpacity
+        onPress={() => navigation.navigate('ReportHistory', { dogId, dogName })}
+        activeOpacity={0.7}
+        style={report_.historyLinkWrap}
+      >
+        <Text style={report_.historyLink}>View past reports →</Text>
       </TouchableOpacity>
+
     </ScrollView>
   );
 }
@@ -3584,7 +3579,9 @@ const report_ = StyleSheet.create({
     backgroundColor: '#FAFAF9',
   },
   content: {
+    padding: 16,
     paddingBottom: 48,
+    gap: 24,
   },
   loadingContainer: {
     flex: 1,
@@ -3595,49 +3592,73 @@ const report_ = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
   },
-  hero: {
-    width: '100%',
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+
+  // Hero
+  heroCard: {
+    borderRadius: 8,
+    padding: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    borderRadius: 8,
   },
-  heroLabel: {
+  heroText: {
     fontSize: 18,
     fontWeight: '600',
     color: '#FFFFFF',
     textAlign: 'center',
   },
-  dayCountBlock: {
-    alignItems: 'center',
-    paddingTop: 32,
-    paddingBottom: 24,
+
+  // Shared card shell
+  card: {
+    backgroundColor: '#FAFAF9',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 16,
   },
-  dayCountNumber: {
+
+  // Day count
+  dayNum: {
     fontSize: 48,
     fontWeight: '800',
     color: '#1F2937',
-    letterSpacing: -0.5,
+    letterSpacing: -1,
+    textAlign: 'center',
   },
-  dayCountLabel: {
+  daySubtitle: {
     fontSize: 14,
     color: '#9CA3AF',
+    textAlign: 'center',
     marginTop: 4,
   },
-  weekLabel: {
+  dayHelper: {
     fontSize: 12,
     fontWeight: '500',
     color: '#9CA3AF',
     textAlign: 'center',
+    marginTop: 6,
+  },
+
+  // Card section label
+  cardSectionTitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+
+  // Week carousel
+  weekRangeLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: 8,
   },
   weekRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    paddingHorizontal: 12,
   },
   weekArrow: {
     padding: 8,
@@ -3646,6 +3667,7 @@ const report_ = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-evenly',
+    alignItems: 'center',
   },
   dot: {
     width: DOT_SIZE,
@@ -3656,16 +3678,15 @@ const report_ = StyleSheet.create({
     fontSize: 12,
     color: '#9CA3AF',
     textAlign: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
+
+  // Day popover
   popover: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    backgroundColor: '#FAFAF9',
+    marginTop: 12,
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    padding: 12,
   },
   popoverHeader: {
     flexDirection: 'row',
@@ -3683,86 +3704,71 @@ const report_ = StyleSheet.create({
     color: '#1F2937',
     lineHeight: 19,
   },
+
+  // Signal grid
   signalGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 16,
-    marginTop: 24,
   },
   signalTile: {
     width: '33.33%',
     alignItems: 'center',
-    marginBottom: 24,
-  },
-  signalIconWrap: {
-    position: 'relative',
-  },
-  signalDot: {
-    position: 'absolute',
-    bottom: -2,
-    right: -4,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: '#FAFAF9',
+    paddingVertical: 12,
+    gap: 6,
   },
   signalLabel: {
     fontSize: 12,
     color: '#9CA3AF',
-    marginTop: 6,
+    textAlign: 'center',
   },
   signalBadge: {
-    marginTop: 4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#1F2937',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
+    backgroundColor: '#D97706',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
   signalBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  pillStrip: {
-    marginTop: 8,
-    paddingLeft: 16,
-  },
-  pill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  pillText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  expandedDetail: {
-    marginTop: 10,
-    marginHorizontal: 16,
-    fontSize: 13,
-    color: '#1F2937',
-    lineHeight: 19,
+
+  // Alert history
+  alertStack: {
+    gap: 8,
   },
-  caption: {
-    marginTop: 24,
-    marginHorizontal: 16,
+  alertCard: {
+    borderLeftWidth: 4,
+    borderRadius: 8,
+    padding: 16,
+  },
+  alertDate: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    marginBottom: 2,
+  },
+  alertLevel: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  alertReason: {
     fontSize: 14,
     color: '#9CA3AF',
-    lineHeight: 21,
-    textAlign: 'center',
+    lineHeight: 20,
+  },
+
+  // Footer
+  historyLinkWrap: {
+    alignItems: 'center',
+    paddingVertical: 8,
   },
   historyLink: {
-    marginTop: 20,
     fontSize: 14,
     color: '#0F6E56',
     fontWeight: '600',
-    textAlign: 'center',
   },
 });
 
