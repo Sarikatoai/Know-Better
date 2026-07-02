@@ -188,6 +188,21 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
 
             <View style={styles.divider} />
 
+            {/* 1c — Add Dog */}
+            <TouchableOpacity
+              style={styles.menuRow}
+              activeOpacity={0.7}
+              onPress={() => { onClose(); navigation.navigate('AddDog'); }}
+            >
+              <MaterialCommunityIcons name="plus-circle-outline" size={20} color={C.teal} style={styles.rowIcon} />
+              <View style={styles.rowBody}>
+                <Text style={styles.rowLabel}>Add Dog</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={C.gray300} />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             {/* 2 — Notifications */}
             <View style={styles.sectionBlock}>
               <Text style={styles.sectionHeading}>Notifications</Text>

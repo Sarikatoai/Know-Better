@@ -6,6 +6,7 @@ import HelpScreen from './screens/HelpScreen';
 import PrivacyScreen from './screens/PrivacyScreen';
 import TermsScreen from './screens/TermsScreen';
 import { Audio } from 'expo-av';
+import * as ImagePicker from 'expo-image-picker';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -2436,6 +2437,277 @@ function CheckInHistoryScreen({ navigation, route }) {
   );
 }
 
+// ─── Screen: Add Dog ─────────────────────────────────────────────────────────
+
+function AddDogScreen({ navigation }) {
+  const [name, setName] = useState('');
+  const [breed, setBreed] = useState('');
+  const [showBreedSuggestions, setShowBreedSuggestions] = useState(false);
+  const [sex, setSex] = useState(null);
+  const [age, setAge] = useState(null);
+  const [showAgeDropdown, setShowAgeDropdown] = useState(false);
+  const [localPhotoUri, setLocalPhotoUri] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const filteredBreeds = breed.trim()
+    ? DOG_BREEDS.filter(b => b.toLowerCase().includes(breed.toLowerCase()))
+    : DOG_BREEDS;
+  const breedSuggestions = [...SPECIAL_OPTIONS, ...filteredBreeds];
+
+  const canSave = name.trim().length > 0 && breed.trim().length > 0 && sex !== null;
+
+  const handlePickPhoto = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled) setLocalPhotoUri(result.assets[0].uri);
+  };
+
+  const handleSave = async () => {
+    if (!canSave || isSaving) return;
+    setIsSaving(true);
+    setError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not signed in');
+      const userId = session.user.id;
+
+      const { data: dog, error: dogError } = await supabase
+        .from('dogs')
+        .insert({
+          owner_id: userId,
+          dog_name: name.trim(),
+          breed: breed.trim(),
+          sex: sex.toLowerCase(),
+          date_of_birth: age ? ageToDOB(age) : null,
+        })
+        .select('dog_id')
+        .single();
+      if (dogError) throw dogError;
+
+      const { error: memberError } = await supabase.from('family_members').insert({
+        owner_id: userId,
+        member_user_id: userId,
+        dog_id: dog.dog_id,
+        role: 'primary_owner',
+        can_log: true,
+        can_view: true,
+        can_manage: true,
+      });
+      if (memberError) throw memberError;
+
+      let photoUrl = null;
+      if (localPhotoUri) {
+        try {
+          const res = await fetch(localPhotoUri);
+          const blob = await res.blob();
+          const mimeType = blob.type || 'image/jpeg';
+          const ext = mimeType.includes('png') ? 'png' : 'jpg';
+          const path = `${dog.dog_id}.${ext}`;
+          const { error: uploadErr } = await supabase.storage
+            .from('dog-profiles')
+            .upload(path, blob, { contentType: mimeType, upsert: true });
+          if (!uploadErr) {
+            const { data: urlData } = supabase.storage.from('dog-profiles').getPublicUrl(path);
+            photoUrl = urlData?.publicUrl ?? null;
+            if (photoUrl) {
+              await supabase.from('dogs').update({ profile_photo_url: photoUrl }).eq('dog_id', dog.dog_id);
+            }
+          }
+        } catch (photoErr) {
+          console.log('[AddDog] photo upload failed (non-fatal):', photoErr);
+        }
+      }
+
+      navigation.reset({
+        index: 0,
+        routes: [{
+          name: 'CheckIn',
+          params: {
+            dogId: dog.dog_id,
+            dogName: name.trim(),
+            dogPhotoUrl: photoUrl ? `${photoUrl}?t=${Date.now()}` : null,
+          },
+        }],
+      });
+    } catch (err) {
+      console.log('[AddDog] save error:', err);
+      setError('Something went wrong. Please try again.');
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: T.color.offWhite }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        contentContainerStyle={addDog.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={addDog.title}>Add a new dog</Text>
+
+        {/* Photo */}
+        <TouchableOpacity style={addDog.photoRow} onPress={handlePickPhoto} activeOpacity={0.8}>
+          {localPhotoUri ? (
+            <Image source={{ uri: localPhotoUri }} style={addDog.photo} />
+          ) : (
+            <View style={addDog.photoPlaceholder}>
+              <MaterialCommunityIcons name="paw" size={28} color={T.color.teal} />
+            </View>
+          )}
+          <View>
+            <Text style={addDog.photoLink}>{localPhotoUri ? 'Change photo' : 'Add photo'}</Text>
+            <Text style={addDog.photoHint}>Optional</Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* Name */}
+        <View style={addDog.field}>
+          <Text style={addDog.label}>Dog's name <Text style={addDog.req}>*</Text></Text>
+          <TextInput
+            style={addDog.textInput}
+            placeholder="Enter your dog's name"
+            placeholderTextColor={T.color.gray600}
+            value={name}
+            onChangeText={setName}
+            returnKeyType="next"
+          />
+        </View>
+
+        {/* Breed */}
+        <View style={addDog.field}>
+          <Text style={addDog.label}>Breed <Text style={addDog.req}>*</Text></Text>
+          <View style={addDog.inputRow}>
+            <TextInput
+              style={addDog.inputInner}
+              placeholder="Search or select breed"
+              placeholderTextColor={T.color.gray600}
+              value={breed}
+              onChangeText={(text) => { setBreed(text); setShowBreedSuggestions(true); }}
+              onFocus={() => setShowBreedSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowBreedSuggestions(false), 150)}
+              returnKeyType="done"
+              onSubmitEditing={() => setShowBreedSuggestions(false)}
+            />
+            {breed.length > 0 && (
+              <TouchableOpacity
+                style={addDog.clearBtn}
+                onPress={() => { setBreed(''); setShowBreedSuggestions(true); }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="close-circle" size={18} color={T.color.gray600} />
+              </TouchableOpacity>
+            )}
+          </View>
+          {showBreedSuggestions && (
+            <View style={addDog.inlineDropdown}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                style={{ maxHeight: 200 }}
+                nestedScrollEnabled
+              >
+                {breedSuggestions.map((item, index) => (
+                  <TouchableOpacity
+                    key={item}
+                    style={[addDog.dropdownItem, index < SPECIAL_OPTIONS.length && addDog.dropdownSpecial]}
+                    onPress={() => { setBreed(item); setShowBreedSuggestions(false); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[addDog.dropdownText, index < SPECIAL_OPTIONS.length && addDog.dropdownSpecialText]}>
+                      {item}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
+        {/* Sex */}
+        <View style={addDog.field}>
+          <Text style={addDog.label}>Sex <Text style={addDog.req}>*</Text></Text>
+          <View style={addDog.segmented}>
+            {['Male', 'Female', 'Unknown'].map((opt) => {
+              const active = sex === opt;
+              return (
+                <TouchableOpacity
+                  key={opt}
+                  style={[addDog.segment, active && addDog.segmentActive]}
+                  onPress={() => setSex(opt)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[addDog.segmentText, active && addDog.segmentTextActive]}>{opt}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Age */}
+        <View style={addDog.field}>
+          <Text style={addDog.label}>Age <Text style={addDog.optional}>(optional)</Text></Text>
+          <TouchableOpacity
+            style={addDog.ageTrigger}
+            onPress={() => setShowAgeDropdown(prev => !prev)}
+            activeOpacity={0.8}
+          >
+            <Text style={[addDog.ageTriggerText, !age && addDog.agePlaceholder]}>
+              {age ?? 'Select age'}
+            </Text>
+            <MaterialCommunityIcons
+              name={showAgeDropdown ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={T.color.gray600}
+            />
+          </TouchableOpacity>
+          {showAgeDropdown && (
+            <View style={addDog.inlineDropdown}>
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 200 }} nestedScrollEnabled>
+                {AGE_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    style={[addDog.dropdownItem, age === option && addDog.dropdownItemSelected]}
+                    onPress={() => { setAge(option); setShowAgeDropdown(false); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[addDog.dropdownText, age === option && addDog.dropdownTextSelected]}>
+                      {option}
+                    </Text>
+                    {age === option && <MaterialCommunityIcons name="check" size={16} color={T.color.teal} />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
+        {error ? <Text style={addDog.errorText}>{error}</Text> : null}
+
+        <TouchableOpacity
+          style={[addDog.saveBtn, { backgroundColor: canSave && !isSaving ? T.color.teal : T.color.gray300 }]}
+          onPress={handleSave}
+          disabled={!canSave || isSaving}
+          activeOpacity={0.85}
+        >
+          <Text style={addDog.saveBtnText}>{isSaving ? 'Adding…' : 'Add Dog'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7} style={addDog.cancelBtn}>
+          <Text style={addDog.cancelText}>Cancel</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
 // ─── Onboarding save helpers ─────────────────────────────────────────────────
 
 const ageToDOB = (ageStr) => {
@@ -2686,6 +2958,7 @@ export default function App() {
         <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
         <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerTitle: 'Report History' }} />
         <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerTitle: 'Check-in History' }} />
+        <Stack.Screen name="AddDog" component={AddDogScreen} options={{ headerTitle: 'Add Dog' }} />
         <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Terms" component={TermsScreen} options={{ headerShown: false }} />
@@ -4197,5 +4470,208 @@ const ciHistory = StyleSheet.create({
     fontSize: 15,
     color: T.color.charcoal,
     lineHeight: 23,
+  },
+});
+
+const addDog = StyleSheet.create({
+  content: {
+    padding: T.space.sm,
+    paddingTop: T.space.md,
+    paddingBottom: T.space.xl,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: T.color.charcoal,
+    marginBottom: T.space.md,
+  },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: T.space.md,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.card,
+  },
+  photo: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  photoPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E8F3EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoLink: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: T.color.teal,
+  },
+  photoHint: {
+    fontSize: 12,
+    color: T.color.gray600,
+    marginTop: 2,
+  },
+  field: {
+    marginBottom: T.space.md,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: T.color.charcoal,
+    marginBottom: 8,
+  },
+  req: {
+    color: T.color.teal,
+  },
+  optional: {
+    color: T.color.gray600,
+    fontWeight: '400',
+  },
+  textInput: {
+    height: 40,
+    paddingHorizontal: T.space.sm,
+    fontSize: 15,
+    color: T.color.charcoal,
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.input,
+    backgroundColor: '#FFFFFF',
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.input,
+    backgroundColor: '#FFFFFF',
+    minHeight: 40,
+    paddingRight: 8,
+  },
+  inputInner: {
+    flex: 1,
+    height: 40,
+    paddingHorizontal: T.space.sm,
+    fontSize: 15,
+    color: T.color.charcoal,
+  },
+  clearBtn: {
+    padding: 4,
+  },
+  inlineDropdown: {
+    marginTop: 2,
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.card,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: T.color.gray300,
+  },
+  dropdownSpecial: {
+    backgroundColor: T.color.gray100,
+  },
+  dropdownItemSelected: {
+    backgroundColor: '#E8F3EF',
+  },
+  dropdownText: {
+    fontSize: 15,
+    color: T.color.charcoal,
+  },
+  dropdownSpecialText: {
+    fontWeight: '500',
+    color: T.color.teal,
+  },
+  dropdownTextSelected: {
+    fontWeight: '600',
+    color: T.color.teal,
+  },
+  segmented: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  segment: {
+    flex: 1,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.btn,
+    backgroundColor: '#FFFFFF',
+  },
+  segmentActive: {
+    backgroundColor: T.color.teal,
+    borderColor: T.color.teal,
+  },
+  segmentText: {
+    fontSize: 14,
+    color: T.color.charcoal,
+  },
+  segmentTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  ageTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 40,
+    paddingHorizontal: T.space.sm,
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.input,
+    backgroundColor: '#FFFFFF',
+  },
+  ageTriggerText: {
+    fontSize: 15,
+    color: T.color.charcoal,
+  },
+  agePlaceholder: {
+    color: T.color.gray600,
+  },
+  errorText: {
+    fontSize: 14,
+    color: T.color.red,
+    marginBottom: T.space.sm,
+  },
+  saveBtn: {
+    height: 44,
+    borderRadius: T.radius.btn,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: T.space.xs,
+  },
+  saveBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  cancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  cancelText: {
+    fontSize: 15,
+    color: T.color.gray600,
   },
 });
