@@ -2407,20 +2407,20 @@ function CheckInHistoryScreen({ navigation, route }) {
                   <MaterialCommunityIcons name="close" size={20} color={T.color.gray600} />
                 </TouchableOpacity>
               </View>
-              {selectedItem.check_in_text ? (
-                <>
-                  <Text style={ciHistory.modalSectionLabel}>What you said</Text>
-                  <Text style={ciHistory.modalBody}>{selectedItem.check_in_text}</Text>
-                </>
-              ) : null}
-              {selectedItem.responses?.[0]?.response_text ? (
-                <>
-                  <Text style={ciHistory.modalSectionLabel}>Know Better's response</Text>
-                  <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 260 }}>
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 360 }}>
+                {selectedItem.check_in_text ? (
+                  <>
+                    <Text style={ciHistory.modalSectionLabel}>What you said</Text>
+                    <Text style={[ciHistory.modalBody, { marginBottom: T.space.sm }]}>{selectedItem.check_in_text}</Text>
+                  </>
+                ) : null}
+                {selectedItem.responses?.[0]?.response_text ? (
+                  <>
+                    <Text style={ciHistory.modalSectionLabel}>Know Better's response</Text>
                     <Text style={ciHistory.modalBody}>{selectedItem.responses[0].response_text}</Text>
-                  </ScrollView>
-                </>
-              ) : null}
+                  </>
+                ) : null}
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -4370,7 +4370,7 @@ const reportHistory = StyleSheet.create({
 const ciHistory = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: T.space.sm,
     paddingBottom: 48,
   },
   empty: {
@@ -4380,9 +4380,12 @@ const ciHistory = StyleSheet.create({
     marginTop: 24,
   },
   row: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.color.gray300,
+    backgroundColor: T.color.offWhite,
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.card,
+    padding: T.space.sm,
+    marginBottom: T.space.xs,
     gap: 4,
   },
   rowMeta: {
@@ -4407,9 +4410,9 @@ const ciHistory = StyleSheet.create({
   },
   rowSummary: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     color: T.color.charcoal,
-    lineHeight: 21,
+    lineHeight: 24,
   },
   badge: {
     paddingHorizontal: 8,
@@ -4467,9 +4470,9 @@ const ciHistory = StyleSheet.create({
     letterSpacing: 0.5,
   },
   modalBody: {
-    fontSize: 15,
+    fontSize: 16,
     color: T.color.charcoal,
-    lineHeight: 23,
+    lineHeight: 24,
   },
 });
 
