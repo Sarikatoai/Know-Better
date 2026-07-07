@@ -1432,6 +1432,8 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
     if (activeAlertLevel === 1) {
       setActiveAlertLevel(null);
       setActiveAlertId(null);
+      setTranscription('');
+      setClaudeResponse('');
       await resetBaseline(currentDogId);
     } else {
       setAlertAcknowledged(true);
