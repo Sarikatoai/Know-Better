@@ -734,6 +734,13 @@ function CongratulationsScreen({ navigation, route }) {
 
 const DAILY_CHECKIN_LIMIT = 10;
 
+const getCheckInTypeByTime = () => {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+};
+
 const ALERT_BANNER_CONFIG = {
   1: { bg: '#FFFBEB', text: 'I noticed a pattern', color: '#D97706' },
   2: { bg: '#FFF7ED', text: 'Worth mentioning to your vet', color: '#EA580C' },
@@ -753,6 +760,8 @@ function CheckInScreen({ navigation, route }) {
   const [activeAlertLevel, setActiveAlertLevel] = useState(null);
   const [isClaudeLoading, setIsClaudeLoading] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [inputMode, setInputMode] = useState('voice'); // 'voice' | 'type'
+  const [typedText, setTypedText] = useState('');
   const [dailyCount, setDailyCount] = useState(0);
   const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -1616,6 +1625,74 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     else if (recordingState === 'recording') stopAndTranscribe();
   };
 
+  const handleTextSubmit = async () => {
+    const text = typedText.trim();
+    if (!text) return;
+    setRecordingState('processing');
+    setTranscription(text);
+    setTypedText('');
+    const userId = userIdRef.current;
+    const dogId = dogIdRef.current;
+    const familyMemberId = familyMemberIdRef.current;
+    try {
+      const classification = await classifyCheckIn(text);
+      const treatmentActive = await getActiveTreatment(dogId);
+      let checkInId = null;
+      if (userId && dogId && familyMemberId) {
+        const todayStart = new Date();
+        todayStart.setUTCHours(0, 0, 0, 0);
+        const { data: userDogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
+        const allDogIds = (userDogs ?? []).map(d => d.dog_id);
+        const { count: todayCount } = await supabase
+          .from('check_ins')
+          .select('check_in_id', { count: 'exact', head: true })
+          .in('dog_id', allDogIds)
+          .gte('created_at', todayStart.toISOString());
+        if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
+          setDailyCount(todayCount ?? 0);
+        } else {
+          const { data: checkInData, error: checkInError } = await supabase
+            .from('check_ins')
+            .insert({
+              dog_id: dogId,
+              family_member_id: familyMemberId,
+              check_in_type: getCheckInTypeByTime(),
+              check_in_text: text,
+              transcription_status: 'completed',
+              input_classification: classification,
+              contributed_to_baseline: classification === 'health_event' ? 'partial' : (classification === 'normal' || classification === 'concerning') ? (treatmentActive ? 'partial' : 'yes') : 'no',
+            })
+            .select('check_in_id')
+            .single();
+          if (!checkInError) {
+            checkInId = checkInData.check_in_id;
+            setDailyCount(c => c + 1);
+          } else {
+            console.log('[TextCheckIn] insert error:', checkInError);
+          }
+        }
+      }
+      if (checkInId) {
+        if (classification === 'health_event') {
+          extractHealthEvent(text, checkInId, dogId, familyMemberId);
+        }
+        if (classification === 'concerning' || classification === 'health_event') {
+          await extractSignals(text, checkInId, dogId);
+        }
+        await calculateBaseline(dogId);
+        if (classification !== 'health_event') {
+          await checkTreatmentWindowClose(dogId);
+        }
+      }
+      const { alertLevel, consecutiveDays } = await detectDeviation(dogId, checkInId, treatmentActive);
+      callClaude(text, checkInId, classification, alertLevel, consecutiveDays);
+    } catch (err) {
+      console.log('[TextCheckIn] error:', err);
+    } finally {
+      setRecordingState('idle');
+    }
+  };
+
   const isRecording = recordingState === 'recording';
   const isProcessing = recordingState === 'processing';
   const isAtLimit = dailyCountLoaded && dailyCount >= DAILY_CHECKIN_LIMIT;
@@ -1661,49 +1738,105 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         <Text style={checkIn.greeting}>Good morning, {userName || 'there'}.</Text>
         <Text style={checkIn.question}>How did {dogName || 'your dog'}'s morning go?</Text>
 
-        {permissionDenied ? (
-          <Text style={checkIn.permissionError}>
-            Microphone access is required. Please enable it in your device settings.
-          </Text>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={checkIn.micOuter}
-              activeOpacity={isProcessing || isAtLimit ? 1 : 0.9}
-              onPress={isProcessing || isAtLimit ? undefined : handleMicPress}
-              disabled={isProcessing || isAtLimit}
-            >
-              {isRecording && (
-                <Animated.View style={[checkIn.ring, { transform: [{ scale: ringPulse }] }]} />
-              )}
-              <Animated.View style={[
-                checkIn.micButton,
-                isRecording && checkIn.micButtonRecording,
-                isProcessing && checkIn.micButtonProcessing,
-                isAtLimit && checkIn.micButtonDisabled,
-                { transform: [{ scale: pulse }] },
-              ]}>
-                <MaterialCommunityIcons name="microphone" size={28} color="#FFFFFF" />
-              </Animated.View>
-            </TouchableOpacity>
+        <>
+            <View style={checkIn.modeToggle}>
+              <TouchableOpacity
+                style={[checkIn.modeBtn, inputMode === 'voice' && checkIn.modeBtnActive]}
+                onPress={() => setInputMode('voice')}
+                activeOpacity={0.8}
+              >
+                <Text style={[checkIn.modeBtnText, inputMode === 'voice' && checkIn.modeBtnActiveText]}>Voice</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[checkIn.modeBtn, inputMode === 'type' && checkIn.modeBtnActive]}
+                onPress={() => setInputMode('type')}
+                activeOpacity={0.8}
+              >
+                <Text style={[checkIn.modeBtnText, inputMode === 'type' && checkIn.modeBtnActiveText]}>Type</Text>
+              </TouchableOpacity>
+            </View>
 
-            <Text style={checkIn.listening}>
-              {isAtLimit ? 'Daily limit reached' : isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
-            </Text>
+            {inputMode === 'voice' ? (
+              permissionDenied ? (
+                <Text style={checkIn.permissionError}>
+                  Microphone access is required. Please enable it in your device settings.
+                </Text>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={checkIn.micOuter}
+                    activeOpacity={isProcessing || isAtLimit ? 1 : 0.9}
+                    onPress={isProcessing || isAtLimit ? undefined : handleMicPress}
+                    disabled={isProcessing || isAtLimit}
+                  >
+                    {isRecording && (
+                      <Animated.View style={[checkIn.ring, { transform: [{ scale: ringPulse }] }]} />
+                    )}
+                    <Animated.View style={[
+                      checkIn.micButton,
+                      isRecording && checkIn.micButtonRecording,
+                      isProcessing && checkIn.micButtonProcessing,
+                      isAtLimit && checkIn.micButtonDisabled,
+                      { transform: [{ scale: pulse }] },
+                    ]}>
+                      <MaterialCommunityIcons name="microphone" size={28} color="#FFFFFF" />
+                    </Animated.View>
+                  </TouchableOpacity>
 
-            {isAtLimit ? (
-              <Text style={checkIn.rateLimitMsg}>
-                You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
-              </Text>
+                  <Text style={checkIn.listening}>
+                    {isAtLimit ? 'Daily limit reached' : isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
+                  </Text>
+
+                  {isAtLimit ? (
+                    <Text style={checkIn.rateLimitMsg}>
+                      You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
+                    </Text>
+                  ) : (
+                    <>
+                      {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
+                        <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
+                      )}
+                      {recordingState === 'idle' && !transcription && (
+                        <Text style={checkIn.hint}>
+                          Tap the mic and tell me about {dogName || 'your dog'}'s morning
+                        </Text>
+                      )}
+                    </>
+                  )}
+                </>
+              )
             ) : (
               <>
-                {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
-                  <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
-                )}
-                {recordingState === 'idle' && !transcription && (
-                  <Text style={checkIn.hint}>
-                    Tap the mic and tell me about {dogName || 'your dog'}'s morning
+                <TextInput
+                  style={checkIn.typeInput}
+                  multiline
+                  placeholder="Describe what you observed..."
+                  placeholderTextColor="#9CA3AF"
+                  value={typedText}
+                  onChangeText={setTypedText}
+                  editable={!isProcessing && !isAtLimit}
+                  textAlignVertical="top"
+                />
+                {isAtLimit ? (
+                  <Text style={checkIn.rateLimitMsg}>
+                    You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
                   </Text>
+                ) : (
+                  <>
+                    {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
+                      <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
+                    )}
+                    <TouchableOpacity
+                      style={[checkIn.submitBtn, (!typedText.trim() || isProcessing || isAtLimit) && checkIn.submitBtnDisabled]}
+                      onPress={handleTextSubmit}
+                      disabled={!typedText.trim() || isProcessing || isAtLimit}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={checkIn.submitBtnText}>
+                        {isProcessing ? 'Processing…' : 'Submit'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
                 )}
               </>
             )}
@@ -1761,7 +1894,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               </>
             )}
           </>
-        )}
       </ScrollView>
 
       <BurgerMenu
@@ -4118,6 +4250,64 @@ const checkIn = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#1F2937',
+  },
+  modeToggle: {
+    flexDirection: 'row',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+    marginBottom: 24,
+    width: '100%',
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  modeBtnActive: {
+    backgroundColor: '#0F6E56',
+  },
+  modeBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#9CA3AF',
+  },
+  modeBtnActiveText: {
+    color: '#FFFFFF',
+  },
+  typeInput: {
+    width: '100%',
+    height: 120,
+    backgroundColor: '#FAFAF9',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    padding: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#1F2937',
+    lineHeight: 24,
+    marginBottom: 12,
+  },
+  submitBtn: {
+    width: '100%',
+    minHeight: 44,
+    backgroundColor: '#0F6E56',
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  submitBtnDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  submitBtnText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#FFFFFF',
   },
 });
 
