@@ -721,7 +721,23 @@ function CongratulationsScreen({ navigation, route }) {
         <TouchableOpacity
           style={congrats.button}
           activeOpacity={0.85}
-          onPress={() => navigation.navigate('CheckIn', { userName, dogName })}
+          onPress={async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+            const { data: dog } = await supabase
+              .from('dogs')
+              .select('dog_id, dog_name, profile_photo_url')
+              .eq('owner_id', session.user.id)
+              .order('created_at', { ascending: true })
+              .limit(1)
+              .single();
+            navigation.navigate('CheckIn', {
+              dogId: dog?.dog_id ?? null,
+              dogName: dog?.dog_name ?? dogName,
+              dogPhotoUrl: dog?.profile_photo_url ?? null,
+              userName,
+            });
+          }}
         >
           <Text style={congrats.buttonText}>Let's hear it</Text>
         </TouchableOpacity>
