@@ -756,6 +756,15 @@ function CheckInScreen({ navigation, route }) {
   const [transcription, setTranscription] = useState('');
   const [claudeResponse, setClaudeResponse] = useState('');
   const [activeAlertLevel, setActiveAlertLevel] = useState(null);
+  const [activeAlertId, setActiveAlertId] = useState(null);
+  const [alertAcknowledged, setAlertAcknowledged] = useState(false);
+  const [showVetUpdateModal, setShowVetUpdateModal] = useState(false);
+  const [vetVisitDate, setVetVisitDate] = useState('');
+  const [vetFeedback, setVetFeedback] = useState('');
+  const [treatmentGiven, setTreatmentGiven] = useState('');
+  const [vetNotes, setVetNotes] = useState('');
+  const [isSubmittingVetUpdate, setIsSubmittingVetUpdate] = useState(false);
+  const [vetSuccessToast, setVetSuccessToast] = useState(false);
   const [isClaudeLoading, setIsClaudeLoading] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [inputMode, setInputMode] = useState('voice'); // 'voice' | 'type'
@@ -839,6 +848,28 @@ function CheckInScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
+    const checkAlertExpiry = async () => {
+      const { data: acknowledged } = await supabase
+        .from('alerts')
+        .select('alert_id, alert_level, acknowledged_at, dog_id')
+        .eq('alert_status', 'acknowledged')
+        .is('vet_update_logged_at', null);
+      if (!acknowledged?.length) return;
+      const now = new Date();
+      for (const a of acknowledged) {
+        if (!a.acknowledged_at) continue;
+        const daysSince = (now - new Date(a.acknowledged_at)) / (1000 * 60 * 60 * 24);
+        const expiryDays = a.alert_level === 'level_3' ? 3 : 7;
+        if (daysSince > expiryDays) {
+          await supabase.from('alerts').update({ alert_status: 'expired' }).eq('alert_id', a.alert_id);
+          await resetBaseline(a.dog_id);
+        }
+      }
+    };
+    checkAlertExpiry();
+  }, []);
+
+  useEffect(() => {
     const newDogId = route.params?.dogId;
     if (!newDogId || newDogId === dogIdRef.current) return;
 
@@ -849,6 +880,8 @@ function CheckInScreen({ navigation, route }) {
     setTranscription('');
     setClaudeResponse('');
     setActiveAlertLevel(null);
+    setActiveAlertId(null);
+    setAlertAcknowledged(false);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) return;
@@ -1277,6 +1310,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       // Final: highest level from either rule
       const finalLevel = Math.max(alertLevel ?? 0, combinationAlertLevel ?? 0) || null;
+      let savedAlertId = null;
 
       if (finalLevel !== null) {
         const parts = [];
@@ -1286,26 +1320,27 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
           else parts.push(`${ccfd} consecutive combination flag day${ccfd !== 1 ? 's' : ''}`);
         }
         const alert_trigger_reason = parts.join(' + ') + ' detected.';
-        const { error: alertError } = await supabase.from('alerts').insert({
+        const { data: alertData, error: alertError } = await supabase.from('alerts').insert({
           dog_id: dogId,
           check_in_id: checkInId,
           alert_level: `level_${finalLevel}`,
           alert_trigger_reason,
           baseline_snapshot: b,
-        });
+          alert_status: 'active',
+        }).select('alert_id').single();
         if (alertError) console.log('[Deviation] alert insert error:', alertError);
-        else console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason);
+        else { console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason); savedAlertId = alertData?.alert_id ?? null; }
       }
 
       const consecutiveDays = (alertLevel ?? 0) >= (combinationAlertLevel ?? 0) ? ccd : ccfd;
-      return { alertLevel: finalLevel, consecutiveDays };
+      return { alertLevel: finalLevel, consecutiveDays, alertId: savedAlertId };
     } catch (err) {
       console.log('[Deviation] error:', err);
-      return { alertLevel: null, consecutiveDays: 0 };
+      return { alertLevel: null, consecutiveDays: 0, alertId: null };
     }
   };
 
-  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0) => {
+  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0, alertId = null) => {
     setIsClaudeLoading(true);
     setClaudeResponse('');
     setActiveAlertLevel(null);
@@ -1346,6 +1381,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         const responseText = data.content[0].text;
         setClaudeResponse(responseText);
         setActiveAlertLevel(alertLevel);
+        setActiveAlertId(alertId);
         saveResponse(checkInId, responseText);
         if (alertLevel === 2 || alertLevel === 3) {
           setTimeout(() => {
@@ -1357,6 +1393,65 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       console.log('[Claude] error:', err);
     } finally {
       setIsClaudeLoading(false);
+    }
+  };
+
+  const resetBaseline = async (dogId) => {
+    if (!dogId) return;
+    await supabase.from('baselines').update({
+      baseline_active: false,
+      consecutive_concerning_days: 0,
+      consecutive_combination_days: 0,
+      concerning_rate: 0,
+      low_signal_count_today: 0,
+    }).eq('dog_id', dogId);
+  };
+
+  const acknowledgeAlert = async () => {
+    if (!activeAlertId) return;
+    await supabase.from('alerts').update({
+      alert_status: 'acknowledged',
+      acknowledged_at: new Date().toISOString(),
+    }).eq('alert_id', activeAlertId);
+    if (activeAlertLevel === 1) {
+      setActiveAlertLevel(null);
+      setActiveAlertId(null);
+      await resetBaseline(currentDogId);
+    } else {
+      setAlertAcknowledged(true);
+    }
+  };
+
+  const submitVetUpdate = async () => {
+    setIsSubmittingVetUpdate(true);
+    try {
+      await supabase.from('vet_updates').insert({
+        alert_id: activeAlertId,
+        dog_id: currentDogId,
+        vet_visit_date: vetVisitDate || null,
+        vet_feedback: vetFeedback || null,
+        treatment_given: treatmentGiven || null,
+        notes: vetNotes || null,
+      });
+      await supabase.from('alerts').update({
+        alert_status: 'resolved',
+        vet_update_logged_at: new Date().toISOString(),
+      }).eq('alert_id', activeAlertId);
+      await resetBaseline(currentDogId);
+      setShowVetUpdateModal(false);
+      setActiveAlertLevel(null);
+      setActiveAlertId(null);
+      setAlertAcknowledged(false);
+      setVetVisitDate('');
+      setVetFeedback('');
+      setTreatmentGiven('');
+      setVetNotes('');
+      setVetSuccessToast(true);
+      setTimeout(() => setVetSuccessToast(false), 3000);
+    } catch (err) {
+      console.log('[VetUpdate] error:', err);
+    } finally {
+      setIsSubmittingVetUpdate(false);
     }
   };
 
@@ -1550,8 +1645,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           if (classification !== 'health_event') {
             await checkTreatmentWindowClose(dogIdRef.current);
           }
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
-          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
+          const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
@@ -1607,8 +1702,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           if (classification !== 'health_event') {
             await checkTreatmentWindowClose(dogIdRef.current);
           }
-          const { alertLevel, consecutiveDays } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
-          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays);
+          const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
         }
       } catch (err) {
         console.log('[Whisper] error:', err);
@@ -1682,8 +1777,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           await checkTreatmentWindowClose(dogId);
         }
       }
-      const { alertLevel, consecutiveDays } = await detectDeviation(dogId, checkInId, treatmentActive);
-      callClaude(text, checkInId, classification, alertLevel, consecutiveDays);
+      const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogId, checkInId, treatmentActive);
+      callClaude(text, checkInId, classification, alertLevel, consecutiveDays, alertId);
     } catch (err) {
       console.log('[TextCheckIn] error:', err);
     } finally {
@@ -1855,16 +1950,33 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               <>
                 <View style={[
                   checkIn.responseCard,
-                  activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && {
+                  !alertAcknowledged && activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && {
                     borderLeftWidth: 4,
                     borderLeftColor: ALERT_BANNER_CONFIG[activeAlertLevel].color,
                     backgroundColor: ALERT_BANNER_CONFIG[activeAlertLevel].bg,
                   },
+                  alertAcknowledged && { backgroundColor: '#F3F4F6', borderLeftWidth: 4, borderLeftColor: '#E5E7EB' },
                 ]}>
                   {activeAlertLevel != null && ALERT_BANNER_CONFIG[activeAlertLevel] && (
-                    <Text style={[checkIn.alertLabel, { color: ALERT_BANNER_CONFIG[activeAlertLevel].color }]}>
-                      {ALERT_BANNER_CONFIG[activeAlertLevel].text}
-                    </Text>
+                    <>
+                      <Text style={[checkIn.alertLabel, { color: alertAcknowledged ? '#9CA3AF' : ALERT_BANNER_CONFIG[activeAlertLevel].color }]}>
+                        {ALERT_BANNER_CONFIG[activeAlertLevel].text}
+                      </Text>
+                      {!alertAcknowledged ? (
+                        <TouchableOpacity style={checkIn.acknowledgeBtn} onPress={acknowledgeAlert} activeOpacity={0.85}>
+                          <Text style={checkIn.acknowledgeBtnText}>Acknowledge</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <>
+                          <Text style={checkIn.acknowledgedText}>Acknowledged — pending vet update</Text>
+                          {(activeAlertLevel === 2 || activeAlertLevel === 3) && (
+                            <TouchableOpacity style={checkIn.acknowledgeBtn} onPress={() => setShowVetUpdateModal(true)} activeOpacity={0.85}>
+                              <Text style={checkIn.acknowledgeBtnText}>Log Vet Update</Text>
+                            </TouchableOpacity>
+                          )}
+                        </>
+                      )}
+                    </>
                   )}
                   <Text style={checkIn.claudeText}>{claudeResponse}</Text>
                 </View>
@@ -1884,6 +1996,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                       setTranscription('');
                       setClaudeResponse('');
                       setActiveAlertLevel(null);
+                      setActiveAlertId(null);
+                      setAlertAcknowledged(false);
                     }}
                   >
                     <Text style={checkIn.actionSecondaryText}>Do another check-in</Text>
@@ -1901,6 +2015,79 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         dogName={dogName}
         dogId={currentDogId}
       />
+
+      {vetSuccessToast && (
+        <View style={checkIn.successToast}>
+          <Text style={checkIn.successToastText}>Vet update saved</Text>
+        </View>
+      )}
+
+      <Modal visible={showVetUpdateModal} transparent animationType="slide" onRequestClose={() => setShowVetUpdateModal(false)}>
+        <View style={checkIn.vetModalOverlay}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowVetUpdateModal(false)} activeOpacity={1} />
+          <View style={checkIn.vetModalSheet}>
+            <Text style={checkIn.vetModalHeader}>Vet Update</Text>
+
+            <Text style={checkIn.vetFieldLabel}>Visit date</Text>
+            <TextInput
+              style={checkIn.vetInput}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#9CA3AF"
+              value={vetVisitDate}
+              onChangeText={setVetVisitDate}
+            />
+
+            <Text style={checkIn.vetFieldLabel}>Vet feedback</Text>
+            <TextInput
+              style={[checkIn.vetInput, checkIn.vetInputMulti]}
+              placeholder="What did the vet say?"
+              placeholderTextColor="#9CA3AF"
+              value={vetFeedback}
+              onChangeText={setVetFeedback}
+              multiline
+              maxLength={500}
+            />
+
+            <Text style={checkIn.vetFieldLabel}>Treatment given</Text>
+            <TextInput
+              style={[checkIn.vetInput, checkIn.vetInputMulti]}
+              placeholder="Any treatments or medications?"
+              placeholderTextColor="#9CA3AF"
+              value={treatmentGiven}
+              onChangeText={setTreatmentGiven}
+              multiline
+              maxLength={500}
+            />
+
+            <Text style={checkIn.vetFieldLabel}>Notes (optional)</Text>
+            <TextInput
+              style={[checkIn.vetInput, checkIn.vetInputMulti]}
+              placeholder="Anything else to note"
+              placeholderTextColor="#9CA3AF"
+              value={vetNotes}
+              onChangeText={setVetNotes}
+              multiline
+            />
+
+            <TouchableOpacity
+              style={checkIn.vetSubmitBtn}
+              onPress={submitVetUpdate}
+              disabled={isSubmittingVetUpdate}
+              activeOpacity={0.85}
+            >
+              <Text style={checkIn.vetSubmitBtnText}>{isSubmittingVetUpdate ? 'Saving…' : 'Save vet update'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={checkIn.vetCancelBtn}
+              onPress={() => setShowVetUpdateModal(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={checkIn.vetCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -4317,6 +4504,105 @@ const checkIn = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#FFFFFF',
+  },
+  acknowledgeBtn: {
+    backgroundColor: '#0F6E56',
+    borderRadius: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  acknowledgeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  acknowledgedText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    marginTop: 6,
+  },
+  vetModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  vetModalSheet: {
+    backgroundColor: '#FAFAF9',
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    padding: 24,
+    borderTopWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  vetModalHeader: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  vetFieldLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    marginBottom: 4,
+    marginTop: 12,
+  },
+  vetInput: {
+    backgroundColor: '#FAFAF9',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 4,
+    padding: 10,
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  vetInputMulti: {
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
+  vetSubmitBtn: {
+    backgroundColor: '#0F6E56',
+    borderRadius: 4,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  vetSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  vetCancelBtn: {
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  vetCancelBtnText: {
+    color: '#1F2937',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  successToast: {
+    position: 'absolute',
+    bottom: 80,
+    left: 16,
+    right: 16,
+    backgroundColor: '#0F6E56',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  successToastText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 
