@@ -3086,7 +3086,18 @@ export default function App() {
         <Stack.Screen name="DogSelection" component={DogSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
-        <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerTitle: 'Report History' }} />
+        <Stack.Screen
+          name="ReportHistory"
+          component={ReportHistoryScreen}
+          options={({ navigation }) => ({
+            headerTitle: 'Report History',
+            headerLeft: () => (
+              <TouchableOpacity onPress={() => navigation.goBack()}>
+                <MaterialCommunityIcons name="arrow-left" size={24} color="#0F6E56" />
+              </TouchableOpacity>
+            ),
+          })}
+        />
         <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerTitle: 'Check-in History' }} />
         <Stack.Screen name="AddDog" component={AddDogScreen} options={{ headerTitle: 'Add Dog' }} />
         <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
