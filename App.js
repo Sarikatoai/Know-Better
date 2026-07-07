@@ -735,10 +735,8 @@ function CongratulationsScreen({ navigation, route }) {
 const DAILY_CHECKIN_LIMIT = 10;
 
 const getCheckInTypeByTime = () => {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
+  const hour = new Date().getHours();
+  return (hour >= 5 && hour < 17) ? 'morning' : 'evening';
 };
 
 const ALERT_BANNER_CONFIG = {
