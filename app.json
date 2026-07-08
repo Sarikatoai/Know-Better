@@ -27,8 +27,6 @@
       }
     },
     "owner": "sarikasonawane",
-    "plugins": [
-      "@react-native-community/datetimepicker"
-    ]
+    "plugins": []
   }
 }
