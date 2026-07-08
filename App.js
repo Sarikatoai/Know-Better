@@ -2045,67 +2045,69 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       <Modal visible={showVetUpdateModal} transparent animationType="slide" onRequestClose={() => setShowVetUpdateModal(false)}>
         <View style={checkIn.vetModalOverlay}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowVetUpdateModal(false)} activeOpacity={1} />
-          <View style={checkIn.vetModalSheet}>
-            <Text style={checkIn.vetModalHeader}>Vet Update</Text>
+          <KeyboardAvoidingView behavior="padding" enabled>
+            <View style={checkIn.vetModalSheet}>
+              <Text style={checkIn.vetModalHeader}>Vet Update</Text>
 
-            <Text style={checkIn.vetFieldLabel}>Visit date</Text>
-            <TextInput
-              style={checkIn.vetInput}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor="#9CA3AF"
-              value={vetVisitDate}
-              onChangeText={setVetVisitDate}
-            />
+              <Text style={checkIn.vetFieldLabel}>Visit date</Text>
+              <TextInput
+                style={checkIn.vetInput}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#9CA3AF"
+                value={vetVisitDate}
+                onChangeText={setVetVisitDate}
+              />
 
-            <Text style={checkIn.vetFieldLabel}>Vet feedback</Text>
-            <TextInput
-              style={[checkIn.vetInput, checkIn.vetInputMulti]}
-              placeholder="What did the vet say?"
-              placeholderTextColor="#9CA3AF"
-              value={vetFeedback}
-              onChangeText={setVetFeedback}
-              multiline
-              maxLength={500}
-            />
+              <Text style={checkIn.vetFieldLabel}>Vet feedback</Text>
+              <TextInput
+                style={[checkIn.vetInput, checkIn.vetInputMulti]}
+                placeholder="What did the vet say?"
+                placeholderTextColor="#9CA3AF"
+                value={vetFeedback}
+                onChangeText={setVetFeedback}
+                multiline
+                maxLength={500}
+              />
 
-            <Text style={checkIn.vetFieldLabel}>Treatment given</Text>
-            <TextInput
-              style={[checkIn.vetInput, checkIn.vetInputMulti]}
-              placeholder="Any treatments or medications?"
-              placeholderTextColor="#9CA3AF"
-              value={treatmentGiven}
-              onChangeText={setTreatmentGiven}
-              multiline
-              maxLength={500}
-            />
+              <Text style={checkIn.vetFieldLabel}>Treatment given</Text>
+              <TextInput
+                style={[checkIn.vetInput, checkIn.vetInputMulti]}
+                placeholder="Any treatments or medications?"
+                placeholderTextColor="#9CA3AF"
+                value={treatmentGiven}
+                onChangeText={setTreatmentGiven}
+                multiline
+                maxLength={500}
+              />
 
-            <Text style={checkIn.vetFieldLabel}>Notes (optional)</Text>
-            <TextInput
-              style={[checkIn.vetInput, checkIn.vetInputMulti]}
-              placeholder="Anything else to note"
-              placeholderTextColor="#9CA3AF"
-              value={vetNotes}
-              onChangeText={setVetNotes}
-              multiline
-            />
+              <Text style={checkIn.vetFieldLabel}>Notes (optional)</Text>
+              <TextInput
+                style={[checkIn.vetInput, checkIn.vetInputMulti]}
+                placeholder="Anything else to note"
+                placeholderTextColor="#9CA3AF"
+                value={vetNotes}
+                onChangeText={setVetNotes}
+                multiline
+              />
 
-            <TouchableOpacity
-              style={checkIn.vetSubmitBtn}
-              onPress={submitVetUpdate}
-              disabled={isSubmittingVetUpdate}
-              activeOpacity={0.85}
-            >
-              <Text style={checkIn.vetSubmitBtnText}>{isSubmittingVetUpdate ? 'Saving…' : 'Save vet update'}</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={checkIn.vetSubmitBtn}
+                onPress={submitVetUpdate}
+                disabled={isSubmittingVetUpdate}
+                activeOpacity={0.85}
+              >
+                <Text style={checkIn.vetSubmitBtnText}>{isSubmittingVetUpdate ? 'Saving…' : 'Save vet update'}</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={checkIn.vetCancelBtn}
-              onPress={() => setShowVetUpdateModal(false)}
-              activeOpacity={0.85}
-            >
-              <Text style={checkIn.vetCancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={checkIn.vetCancelBtn}
+                onPress={() => setShowVetUpdateModal(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={checkIn.vetCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>
