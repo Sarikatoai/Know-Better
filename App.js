@@ -1194,13 +1194,15 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       // Days sorted newest first
       const sortedDays = Object.keys(checkInsByDay).sort().reverse();
-      const total_days = sortedDays.length;
 
-      // A day is concerning if any check-in that day was concerning
-      const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning');
+      const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning' || r.input_classification === 'health_event');
+      const isDayNormal = (rows) => !isDayConcerning(rows) && rows.some(r =>
+        r.input_classification === 'normal' || r.input_classification === 'irrelevant'
+      );
 
-      const normal_days = sortedDays.filter(day => !isDayConcerning(checkInsByDay[day])).length;
+      const normal_days = sortedDays.filter(day => isDayNormal(checkInsByDay[day])).length;
       const concerning_days = sortedDays.filter(day => isDayConcerning(checkInsByDay[day])).length;
+      const total_days = normal_days + concerning_days;
       const normal_rate = total_days > 0 ? normal_days / total_days : 0;
       const concerning_rate = total_days > 0 ? concerning_days / total_days : 0;
       const last_day_classification = sortedDays.length > 0
@@ -2261,7 +2263,7 @@ const generateVetReport = async (dogId, periodDays = 30) => {
     const dayHealthEvents = healthEventsByDay[day] ?? [];
     const daySignalRows = signalsByDay[day] ?? [];
 
-    const isConcerning = dayCheckIns.some(c => c.input_classification === 'concerning');
+    const isConcerning = dayCheckIns.some(c => c.input_classification === 'concerning' || c.input_classification === 'health_event');
     const hasCheckIn = dayCheckIns.length > 0;
 
     let status;
