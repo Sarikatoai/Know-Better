@@ -29,6 +29,7 @@ import {
   View,
 } from 'react-native';
 
+
 const Stack = createNativeStackNavigator();
 
 const AUTH_REDIRECT_URL = Platform.OS === 'web'
@@ -2795,6 +2796,353 @@ function CheckInHistoryScreen({ navigation, route }) {
   );
 }
 
+// ─── Screen: Alerts History ──────────────────────────────────────────────────
+
+const ALERT_TABS = [
+  { key: 'active',       label: 'Active' },
+  { key: 'acknowledged', label: 'Pending' },
+  { key: 'resolved',     label: 'Resolved' },
+  { key: 'expired',      label: 'Expired' },
+];
+
+const LEVEL_BADGE = {
+  1: { label: 'Level 1', color: T.color.amber },
+  2: { label: 'Level 2', color: T.color.orange },
+  3: { label: 'Level 3', color: T.color.red },
+};
+
+function AlertsHistoryScreen({ navigation, route }) {
+  const { dogId: paramDogId, dogName: paramDogName } = route.params ?? {};
+  const [dogId, setDogId] = useState(paramDogId ?? null);
+  const [dogName, setDogName] = useState(paramDogName ?? '');
+  const [activeTab, setActiveTab] = useState('active');
+  const [alerts, setAlerts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [showAckModal, setShowAckModal] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState(null);
+  const [isAcknowledging, setIsAcknowledging] = useState(false);
+
+  const [showVetModal, setShowVetModal] = useState(false);
+  const [vetVisitDate, setVetVisitDate] = useState('');
+  const [vetFeedback, setVetFeedback] = useState('');
+  const [treatmentGiven, setTreatmentGiven] = useState('');
+  const [vetNotes, setVetNotes] = useState('');
+  const [isSubmittingVet, setIsSubmittingVet] = useState(false);
+
+  const [expandedAlertId, setExpandedAlertId] = useState(null);
+
+  const loadAlerts = useCallback(async (resolvedDogId) => {
+    const { data } = await supabase
+      .from('alerts')
+      .select(`
+        alert_id,
+        alert_level,
+        alert_status,
+        alert_trigger_reason,
+        created_at,
+        acknowledged_at,
+        vet_update_logged_at,
+        vet_updates(vet_visit_date, vet_feedback, treatment_given, notes)
+      `)
+      .eq('dog_id', resolvedDogId)
+      .order('created_at', { ascending: false });
+    setAlerts(data ?? []);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const init = async () => {
+        setIsLoading(true);
+        let resolvedDogId = paramDogId ?? null;
+        if (!resolvedDogId) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const { data: dogResult } = await supabase.from('dogs').select('dog_id, dog_name').eq('owner_id', session.user.id).limit(1).single();
+            resolvedDogId = dogResult?.dog_id ?? null;
+            if (!cancelled) {
+              setDogId(resolvedDogId);
+              if (dogResult?.dog_name) setDogName(dogResult.dog_name);
+            }
+          }
+        }
+        if (!resolvedDogId) { if (!cancelled) setIsLoading(false); return; }
+        if (!cancelled) { await loadAlerts(resolvedDogId); setIsLoading(false); }
+      };
+      init();
+      return () => { cancelled = true; };
+    }, [paramDogId, loadAlerts])
+  );
+
+  const daysAgo = (isoDate) => {
+    const days = Math.floor((Date.now() - new Date(isoDate)) / (1000 * 60 * 60 * 24));
+    if (days === 0) return 'today';
+    if (days === 1) return '1 day ago';
+    return `${days} days ago`;
+  };
+
+  const daysUntilExpiry = (acknowledgedAt, alertLevel) => {
+    const expiryDays = alertLevel === 'level_3' ? 3 : 7;
+    const elapsed = (Date.now() - new Date(acknowledgedAt)) / (1000 * 60 * 60 * 24);
+    return Math.max(0, Math.ceil(expiryDays - elapsed));
+  };
+
+  const resetBaselineForDog = async (id) => {
+    await supabase.from('baselines').update({
+      baseline_active: false,
+      consecutive_concerning_days: 0,
+      consecutive_combination_days: 0,
+      concerning_rate: 0,
+      low_signal_count_today: 0,
+    }).eq('dog_id', id);
+  };
+
+  const handleAcknowledge = async () => {
+    if (!selectedAlert || !dogId) return;
+    setIsAcknowledging(true);
+    await supabase.from('alerts').update({
+      alert_status: 'acknowledged',
+      acknowledged_at: new Date().toISOString(),
+    }).eq('alert_id', selectedAlert.alert_id);
+    if ((ALERT_LEVEL_NUM[selectedAlert.alert_level] ?? 1) === 1) {
+      await resetBaselineForDog(dogId);
+    }
+    setIsAcknowledging(false);
+    setShowAckModal(false);
+    setSelectedAlert(null);
+    await loadAlerts(dogId);
+  };
+
+  const handleSubmitVetUpdate = async () => {
+    if (!selectedAlert || !dogId) return;
+    setIsSubmittingVet(true);
+    try {
+      await supabase.from('vet_updates').insert({
+        alert_id: selectedAlert.alert_id,
+        dog_id: dogId,
+        vet_visit_date: vetVisitDate || null,
+        vet_feedback: vetFeedback || null,
+        treatment_given: treatmentGiven || null,
+        notes: vetNotes || null,
+      });
+      await supabase.from('alerts').update({
+        alert_status: 'resolved',
+        vet_update_logged_at: new Date().toISOString(),
+      }).eq('alert_id', selectedAlert.alert_id);
+      await resetBaselineForDog(dogId);
+      setShowVetModal(false);
+      setSelectedAlert(null);
+      setVetVisitDate('');
+      setVetFeedback('');
+      setTreatmentGiven('');
+      setVetNotes('');
+      await loadAlerts(dogId);
+    } catch (err) {
+      console.log('[AlertsHistory] vet update error:', err);
+    } finally {
+      setIsSubmittingVet(false);
+    }
+  };
+
+  const filtered = alerts.filter(a => a.alert_status === activeTab);
+
+  const renderCard = (a) => {
+    const levelNum = ALERT_LEVEL_NUM[a.alert_level] ?? 1;
+    const badge = LEVEL_BADGE[levelNum];
+    const vetUpdate = a.vet_updates?.[0] ?? null;
+    const isExpanded = expandedAlertId === a.alert_id;
+
+    if (a.alert_status === 'active') {
+      return (
+        <View key={a.alert_id} style={ah.card}>
+          <View style={[ah.badge, { backgroundColor: badge.color }]}>
+            <Text style={ah.badgeText}>{badge.label}</Text>
+          </View>
+          <Text style={ah.alertMsg}>{a.alert_trigger_reason}</Text>
+          <Text style={ah.meta}>Triggered {daysAgo(a.created_at)}</Text>
+          <TouchableOpacity
+            style={ah.actionBtn}
+            activeOpacity={0.85}
+            onPress={() => { setSelectedAlert(a); setShowAckModal(true); }}
+          >
+            <Text style={ah.actionBtnText}>Acknowledge</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (a.alert_status === 'acknowledged') {
+      const remaining = daysUntilExpiry(a.acknowledged_at, a.alert_level);
+      const showExpiry = levelNum >= 2 && remaining <= 2;
+      return (
+        <View key={a.alert_id} style={ah.card}>
+          <View style={[ah.badge, { backgroundColor: T.color.gray600 }]}>
+            <Text style={ah.badgeText}>Pending</Text>
+          </View>
+          <Text style={ah.alertMsg}>{a.alert_trigger_reason}</Text>
+          <Text style={ah.meta}>Acknowledged {daysAgo(a.acknowledged_at)}</Text>
+          {showExpiry && (
+            <Text style={[ah.meta, { color: T.color.orange }]}>
+              Expires in {remaining} {remaining === 1 ? 'day' : 'days'}
+            </Text>
+          )}
+          <TouchableOpacity
+            style={ah.actionBtn}
+            activeOpacity={0.85}
+            onPress={() => { setSelectedAlert(a); setShowVetModal(true); }}
+          >
+            <Text style={ah.actionBtnText}>Log Vet Update</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (a.alert_status === 'resolved') {
+      return (
+        <View key={a.alert_id} style={[ah.card, ah.cardResolved]}>
+          <View style={[ah.badge, { backgroundColor: T.color.green }]}>
+            <Text style={ah.badgeText}>Resolved</Text>
+          </View>
+          <Text style={ah.alertMsg}>{a.alert_trigger_reason}</Text>
+          {vetUpdate && (
+            <>
+              <Text style={[ah.meta, { color: T.color.teal }]}>
+                Vet update: {vetUpdate.vet_visit_date ?? daysAgo(a.vet_update_logged_at)}
+              </Text>
+              {isExpanded ? (
+                <>
+                  {vetUpdate.vet_feedback ? <Text style={ah.vetDetail}>{vetUpdate.vet_feedback}</Text> : null}
+                  {vetUpdate.treatment_given ? <Text style={ah.vetDetail}>Treatment: {vetUpdate.treatment_given}</Text> : null}
+                  {vetUpdate.notes ? <Text style={ah.vetDetail}>{vetUpdate.notes}</Text> : null}
+                  <TouchableOpacity onPress={() => setExpandedAlertId(null)} activeOpacity={0.7}>
+                    <Text style={ah.viewDetails}>Show less</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  {vetUpdate.vet_feedback
+                    ? <Text style={ah.vetDetail} numberOfLines={2}>{vetUpdate.vet_feedback}</Text>
+                    : null}
+                  {(vetUpdate.vet_feedback?.length > 100 || vetUpdate.treatment_given || vetUpdate.notes) && (
+                    <TouchableOpacity onPress={() => setExpandedAlertId(a.alert_id)} activeOpacity={0.7}>
+                      <Text style={ah.viewDetails}>View full details</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </View>
+      );
+    }
+
+    if (a.alert_status === 'expired') {
+      return (
+        <View key={a.alert_id} style={ah.card}>
+          <View style={[ah.badge, { backgroundColor: '#6B7280' }]}>
+            <Text style={ah.badgeText}>Expired</Text>
+          </View>
+          <Text style={ah.alertMsg}>{a.alert_trigger_reason}</Text>
+          <Text style={[ah.meta, { color: T.color.red }]}>Dismissed unresolved</Text>
+          <Text style={ah.meta}>Expired {daysAgo(a.created_at)}</Text>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
+  const emptyMessages = {
+    active:       `No active alerts. ${dogName || 'Your dog'} is doing well!`,
+    acknowledged: 'No pending vet updates.',
+    resolved:     'No resolved alerts yet.',
+    expired:      'No expired alerts.',
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: T.color.gray100 }}>
+      <View style={ah.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7} style={ah.backBtn}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color={T.color.teal} />
+        </TouchableOpacity>
+        <View>
+          <Text style={ah.title}>Alerts</Text>
+          <Text style={ah.subtitle}>Active & past alerts for {dogName || 'your dog'}</Text>
+        </View>
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={ah.tabBar} contentContainerStyle={ah.tabBarContent}>
+        {ALERT_TABS.map(t => (
+          <TouchableOpacity
+            key={t.key}
+            style={[ah.tab, activeTab === t.key && ah.tabActive]}
+            onPress={() => setActiveTab(t.key)}
+            activeOpacity={0.8}
+          >
+            <Text style={[ah.tabText, activeTab === t.key && ah.tabTextActive]}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {isLoading ? (
+        <View style={ah.center}>
+          <Text style={ah.emptyText}>Loading…</Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={ah.listContent}>
+          {filtered.length === 0
+            ? <Text style={ah.emptyText}>{emptyMessages[activeTab]}</Text>
+            : filtered.map(renderCard)
+          }
+        </ScrollView>
+      )}
+
+      <Modal visible={showAckModal} transparent animationType="fade" onRequestClose={() => setShowAckModal(false)}>
+        <View style={ah.modalOverlay}>
+          <View style={ah.modalSheet}>
+            <Text style={ah.modalTitle}>Acknowledge Alert?</Text>
+            <Text style={ah.modalBody}>We'll track this. Let us know when you see your vet.</Text>
+            <TouchableOpacity style={ah.modalPrimaryBtn} onPress={handleAcknowledge} disabled={isAcknowledging} activeOpacity={0.85}>
+              <Text style={ah.modalPrimaryBtnText}>{isAcknowledging ? 'Acknowledging…' : 'Acknowledge'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={ah.modalCancelBtn} onPress={() => { setShowAckModal(false); setSelectedAlert(null); }} activeOpacity={0.85}>
+              <Text style={ah.modalCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showVetModal} transparent animationType="slide" onRequestClose={() => setShowVetModal(false)}>
+        <View style={ah.modalOverlay}>
+          <KeyboardAvoidingView behavior="padding" enabled>
+            <View style={ah.modalSheet}>
+              <Text style={ah.modalTitle}>
+                Vet Update{selectedAlert ? ` — Level ${ALERT_LEVEL_NUM[selectedAlert.alert_level] ?? 1}` : ''}
+              </Text>
+              <Text style={ah.vetFieldLabel}>Visit date</Text>
+              <TextInput style={ah.vetInput} placeholder="YYYY-MM-DD" placeholderTextColor={T.color.gray600} value={vetVisitDate} onChangeText={setVetVisitDate} />
+              <Text style={ah.vetFieldLabel}>Vet feedback</Text>
+              <TextInput style={[ah.vetInput, ah.vetInputMulti]} placeholder="What did the vet say?" placeholderTextColor={T.color.gray600} value={vetFeedback} onChangeText={setVetFeedback} multiline maxLength={500} />
+              <Text style={ah.vetFieldLabel}>Treatment given</Text>
+              <TextInput style={[ah.vetInput, ah.vetInputMulti]} placeholder="Any treatments or medications?" placeholderTextColor={T.color.gray600} value={treatmentGiven} onChangeText={setTreatmentGiven} multiline maxLength={500} />
+              <Text style={ah.vetFieldLabel}>Notes (optional)</Text>
+              <TextInput style={[ah.vetInput, ah.vetInputMulti]} placeholder="Anything else to note" placeholderTextColor={T.color.gray600} value={vetNotes} onChangeText={setVetNotes} multiline />
+              <TouchableOpacity style={[ah.modalPrimaryBtn, { marginTop: 16 }]} onPress={handleSubmitVetUpdate} disabled={isSubmittingVet} activeOpacity={0.85}>
+                <Text style={ah.modalPrimaryBtnText}>{isSubmittingVet ? 'Saving…' : 'Save vet update'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={ah.modalCancelBtn} onPress={() => { setShowVetModal(false); setSelectedAlert(null); setVetVisitDate(''); setVetFeedback(''); setTreatmentGiven(''); setVetNotes(''); }} activeOpacity={0.85}>
+                <Text style={ah.modalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+    </View>
+  );
+}
+
 // ─── Screen: Add Dog ─────────────────────────────────────────────────────────
 
 function AddDogScreen({ navigation }) {
@@ -3327,6 +3675,7 @@ export default function App() {
           })}
         />
         <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerTitle: 'Check-in History' }} />
+        <Stack.Screen name="AlertsHistory" component={AlertsHistoryScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AddDog" component={AddDogScreen} options={{ headerTitle: 'Add Dog' }} />
         <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ headerShown: false }} />
@@ -5014,6 +5363,112 @@ const ciHistory = StyleSheet.create({
     color: T.color.charcoal,
     lineHeight: 24,
   },
+});
+
+const ah = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 56 : 40,
+    paddingHorizontal: T.space.sm,
+    paddingBottom: T.space.sm,
+    backgroundColor: T.color.offWhite,
+    borderBottomWidth: 1,
+    borderBottomColor: T.color.gray300,
+  },
+  backBtn: { marginRight: 12 },
+  title: { fontSize: 18, fontWeight: '600', color: T.color.charcoal },
+  subtitle: { fontSize: 12, fontWeight: '500', color: T.color.gray600, marginTop: 2 },
+  tabBar: {
+    backgroundColor: T.color.gray100,
+    borderBottomWidth: 1,
+    borderBottomColor: T.color.gray300,
+    maxHeight: 48,
+  },
+  tabBarContent: { paddingHorizontal: T.space.sm },
+  tab: {
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    marginRight: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: { borderBottomColor: T.color.teal },
+  tabText: { fontSize: 13, fontWeight: '500', color: T.color.gray600 },
+  tabTextActive: { color: T.color.teal },
+  listContent: { padding: T.space.sm, paddingBottom: T.space.lg },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: T.space.md },
+  emptyText: { fontSize: 14, color: T.color.gray600, textAlign: 'center', marginTop: T.space.lg },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: T.radius.card,
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    padding: T.space.sm,
+    marginBottom: T.space.sm,
+  },
+  cardResolved: { borderLeftWidth: 4, borderLeftColor: T.color.green },
+  badge: {
+    alignSelf: 'flex-start',
+    borderRadius: T.radius.btn,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 10,
+  },
+  badgeText: { fontSize: 12, fontWeight: '500', color: '#FFFFFF' },
+  alertMsg: { fontSize: 16, fontWeight: '400', color: T.color.charcoal, marginBottom: 6 },
+  meta: { fontSize: 12, fontWeight: '500', color: T.color.gray600, marginBottom: 4 },
+  vetDetail: { fontSize: 14, color: T.color.gray600, marginTop: 4, lineHeight: 20 },
+  viewDetails: { fontSize: 14, fontWeight: '500', color: T.color.teal, marginTop: 6 },
+  actionBtn: {
+    marginTop: 12,
+    backgroundColor: T.color.teal,
+    borderRadius: T.radius.btn,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+  },
+  actionBtnText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: T.space.sm,
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: T.radius.modal,
+    padding: T.space.md,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '600', color: T.color.charcoal, marginBottom: 8 },
+  modalBody: { fontSize: 16, color: T.color.gray600, marginBottom: T.space.md },
+  modalPrimaryBtn: {
+    backgroundColor: T.color.teal,
+    borderRadius: T.radius.btn,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalPrimaryBtnText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
+  modalCancelBtn: {
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.btn,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalCancelBtnText: { fontSize: 14, color: T.color.charcoal },
+  vetFieldLabel: { fontSize: 12, fontWeight: '500', color: T.color.gray600, marginTop: 12, marginBottom: 4 },
+  vetInput: {
+    backgroundColor: T.color.offWhite,
+    borderWidth: 1,
+    borderColor: T.color.gray300,
+    borderRadius: T.radius.input,
+    padding: 12,
+    fontSize: 14,
+    color: T.color.charcoal,
+  },
+  vetInputMulti: { height: 80, textAlignVertical: 'top' },
 });
 
 const addDog = StyleSheet.create({
