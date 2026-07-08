@@ -5,7 +5,7 @@ import DogSelectionScreen from './screens/DogSelectionScreen';
 import HelpScreen from './screens/HelpScreen';
 import PrivacyScreen from './screens/PrivacyScreen';
 import TermsScreen from './screens/TermsScreen';
-import { Audio } from 'expo-av';
+import { Audio, Video, ResizeMode } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import { NavigationContainer, useNavigationContainerRef, useFocusEffect } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -124,6 +124,56 @@ const DOG_BREEDS = [
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+const VIDEO_URL = 'https://jywodsnqsfakkoyqpdex.supabase.co/storage/v1/object/public/Know-Better%20Ad%20video/Know-better%20ad.mp4';
+
+function WelcomeVideo() {
+  const videoRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  const handlePress = async () => {
+    if (!videoRef.current || !isLoaded) return;
+    try {
+      if (isPlaying) {
+        await videoRef.current.pauseAsync();
+      } else {
+        await videoRef.current.playAsync();
+      }
+    } catch (e) {
+      console.log('[WelcomeVideo] playback error:', e);
+    }
+  };
+
+  if (hasError) return null;
+
+  return (
+    <View style={welcome.videoWrap}>
+      <Video
+        ref={videoRef}
+        source={{ uri: VIDEO_URL }}
+        style={StyleSheet.absoluteFill}
+        resizeMode={ResizeMode.STRETCH}
+        useNativeControls
+        shouldPlay={false}
+        onLoad={() => setIsLoaded(true)}
+        onPlaybackStatusUpdate={(status) => {
+          if (status.isLoaded) setIsPlaying(status.isPlaying);
+          if (status.didJustFinish) setIsPlaying(false);
+        }}
+        onError={() => setHasError(true)}
+      />
+      {!isPlaying && (
+        <TouchableOpacity style={welcome.playOverlay} onPress={handlePress} activeOpacity={0.8}>
+          <View style={welcome.playBtn}>
+            <MaterialCommunityIcons name="play" size={32} color="#0F6E56" />
+          </View>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 function WelcomeScreen({ navigation }) {
   const fadeAnim   = useRef(new Animated.Value(0)).current;
   const scaleAnim  = useRef(new Animated.Value(1)).current;
@@ -172,6 +222,9 @@ function WelcomeScreen({ navigation }) {
             Daily check-ins help you notice patterns — good days and changing patterns both matter.
           </Text>
         </View>
+
+        {/* Video */}
+        <WelcomeVideo />
 
         {/* Buttons */}
         <View style={welcome.footer}>
@@ -3917,6 +3970,39 @@ const welcome = StyleSheet.create({
     backgroundColor: '#F5F1E8',
     borderTopLeftRadius: SCREEN_WIDTH,
     borderTopRightRadius: SCREEN_WIDTH,
+  },
+  videoWrap: {
+    width: '90%',
+    height: undefined,
+    aspectRatio: 16 / 9,
+    borderRadius: 8,
+    marginVertical: 24,
+    alignSelf: 'center',
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });
 
