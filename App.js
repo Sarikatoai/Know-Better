@@ -1306,9 +1306,9 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         else if (ccd >= 3) alertLevel = 2;
         else if (ccd >= 4) alertLevel = 1;
       } else {
-        if      (ccd >= 5 && totalDays >= 10) alertLevel = 3;
-        else if (ccd >= 3 && totalDays >= 7)  alertLevel = 2;
-        else if (ccd >= 2 && totalDays >= 5)  alertLevel = 1;
+        if      (ccd >= 5 && totalDays >= 6) alertLevel = 3;
+        else if (ccd >= 3 && totalDays >= 5) alertLevel = 2;
+        else if (ccd >= 2 && totalDays >= 5) alertLevel = 1;
 
         if (alertLevel === null && ccd >= 2) {
           const needed = ccd >= 5 ? 10 : ccd >= 3 ? 7 : 5;
