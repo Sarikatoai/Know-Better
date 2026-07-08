@@ -7,13 +7,13 @@ import PrivacyScreen from './screens/PrivacyScreen';
 import TermsScreen from './screens/TermsScreen';
 import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
-import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef, useFocusEffect } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Alert,
   Animated,
@@ -2298,11 +2298,12 @@ const generateVetReport = async (dogId, periodDays = 30) => {
     type: h.event_type,
   }));
 
-  const hasActiveAlert = alerts.some(a => a.status === 'active' || a.status === 'acknowledged');
+  const hasActiveAlert = alerts.some(a => a.status === 'active');
+  const nonAlertConcerningCount = days.filter(d => d.status === 'concerning').length;
   let overall_status;
   if (hasActiveAlert) overall_status = 'alert_fired';
-  else if (concerning_day_count >= 3 || health_events.length > 0) overall_status = 'patterns_noted';
-  else if (concerning_day_count >= 1) overall_status = 'mostly_normal';
+  else if (nonAlertConcerningCount >= 3 || health_events.length > 0) overall_status = 'patterns_noted';
+  else if (nonAlertConcerningCount >= 1) overall_status = 'mostly_normal';
   else overall_status = 'all_clear';
 
   const summary_data = {
@@ -2349,40 +2350,43 @@ function ReportScreen({ navigation, route }) {
     });
   }, [navigation]);
 
-  useEffect(() => {
-    const load = async () => {
-      setIsLoading(true);
-      setReport(null);
-      setSelectedDay(null);
-      setWeekIndex(null);
-      let resolvedDogId = paramDogId ?? null;
-      if (!resolvedDogId) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          const { data: dogResult } = await supabase.from('dogs').select('dog_id, dog_name').eq('owner_id', session.user.id).limit(1).single();
-          resolvedDogId = dogResult?.dog_id ?? null;
-          setDogId(resolvedDogId);
-          if (dogResult?.dog_name) setDogName(dogResult.dog_name);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const load = async () => {
+        setIsLoading(true);
+        setReport(null);
+        setSelectedDay(null);
+        setWeekIndex(null);
+        let resolvedDogId = paramDogId ?? null;
+        if (!resolvedDogId) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const { data: dogResult } = await supabase.from('dogs').select('dog_id, dog_name').eq('owner_id', session.user.id).limit(1).single();
+            resolvedDogId = dogResult?.dog_id ?? null;
+            if (!cancelled) { setDogId(resolvedDogId); if (dogResult?.dog_name) setDogName(dogResult.dog_name); }
+          }
         }
-      }
-      if (!resolvedDogId) { setIsLoading(false); return; }
+        if (!resolvedDogId) { if (!cancelled) setIsLoading(false); return; }
 
-      if (reportId) {
-        const { data, error } = await supabase
-          .from('vet_reports')
-          .select('report_id, dog_id, period_start, period_end, overall_status, summary_data, generated_at')
-          .eq('report_id', reportId)
-          .single();
-        if (error) console.log('[Report] load error:', error);
-        setReport(data ?? null);
-      } else {
-        const generated = await generateVetReport(resolvedDogId, 30);
-        setReport(generated);
-      }
-      setIsLoading(false);
-    };
-    load();
-  }, [reportId, paramDogId]);
+        if (reportId) {
+          const { data, error } = await supabase
+            .from('vet_reports')
+            .select('report_id, dog_id, period_start, period_end, overall_status, summary_data, generated_at')
+            .eq('report_id', reportId)
+            .single();
+          if (error) console.log('[Report] load error:', error);
+          if (!cancelled) setReport(data ?? null);
+        } else {
+          const generated = await generateVetReport(resolvedDogId, 30);
+          if (!cancelled) setReport(generated);
+        }
+        if (!cancelled) setIsLoading(false);
+      };
+      load();
+      return () => { cancelled = true; };
+    }, [reportId, paramDogId])
+  );
 
   if (isLoading) {
     return (
@@ -2401,10 +2405,11 @@ function ReportScreen({ navigation, route }) {
   }
 
   const { summary_data, overall_status: savedStatus } = report;
-  const hasActiveAlert = summary_data.alerts.some(a => a.status === 'active' || a.status === 'acknowledged');
+  const hasActiveAlert = summary_data.alerts.some(a => a.status === 'active');
+  const nonAlertConcerningCount = summary_data.days.filter(d => d.status === 'concerning').length;
   const overall_status = savedStatus === 'alert_fired' && !hasActiveAlert
-    ? (summary_data.concerning_day_count >= 3 || summary_data.health_events?.length > 0 ? 'patterns_noted'
-      : summary_data.concerning_day_count >= 1 ? 'mostly_normal'
+    ? (nonAlertConcerningCount >= 3 || summary_data.health_events?.length > 0 ? 'patterns_noted'
+      : nonAlertConcerningCount >= 1 ? 'mostly_normal'
       : 'all_clear')
     : savedStatus;
   const hero = STATUS_HERO_CONFIG[overall_status] ?? STATUS_HERO_CONFIG.all_clear;
