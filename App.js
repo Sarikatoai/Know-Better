@@ -2302,6 +2302,7 @@ const generateVetReport = async (dogId, periodDays = 30) => {
   const nonAlertConcerningCount = days.filter(d => d.status === 'concerning').length;
   let overall_status;
   if (hasActiveAlert) overall_status = 'alert_fired';
+  else if (alerts.length > 0) overall_status = 'all_clear';
   else if (nonAlertConcerningCount >= 3 || health_events.length > 0) overall_status = 'patterns_noted';
   else if (nonAlertConcerningCount >= 1) overall_status = 'mostly_normal';
   else overall_status = 'all_clear';
@@ -2406,11 +2407,8 @@ function ReportScreen({ navigation, route }) {
 
   const { summary_data, overall_status: savedStatus } = report;
   const hasActiveAlert = summary_data.alerts.some(a => a.status === 'active');
-  const nonAlertConcerningCount = summary_data.days.filter(d => d.status === 'concerning').length;
-  const overall_status = savedStatus === 'alert_fired' && !hasActiveAlert
-    ? (nonAlertConcerningCount >= 3 || summary_data.health_events?.length > 0 ? 'patterns_noted'
-      : nonAlertConcerningCount >= 1 ? 'mostly_normal'
-      : 'all_clear')
+  const overall_status = (savedStatus === 'alert_fired' || savedStatus === 'patterns_noted' || savedStatus === 'mostly_normal') && !hasActiveAlert && summary_data.alerts.length > 0
+    ? 'all_clear'
     : savedStatus;
   const hero = STATUS_HERO_CONFIG[overall_status] ?? STATUS_HERO_CONFIG.all_clear;
 
@@ -2427,9 +2425,17 @@ function ReportScreen({ navigation, route }) {
     <ScrollView style={report_.container} contentContainerStyle={report_.content}>
 
       {/* 1 — Status Hero */}
-      <View style={[report_.heroCard, { backgroundColor: hero.bg }]}>
-        <Text style={report_.heroText}>{hero.text(dogName)}</Text>
-      </View>
+      {summary_data.alerts.length > 0 && !hasActiveAlert ? (
+        <View style={report_.resolvedBanner}>
+          <Text style={report_.resolvedBannerText}>
+            Sounds like {dogName || 'your dog'} is in good hands. We're here if anything changes.
+          </Text>
+        </View>
+      ) : (
+        <View style={[report_.heroCard, { backgroundColor: hero.bg }]}>
+          <Text style={report_.heroText}>{hero.text(dogName)}</Text>
+        </View>
+      )}
 
       {/* 2 — Day Count */}
       <View style={report_.card}>
@@ -4673,6 +4679,20 @@ const report_ = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
     textAlign: 'center',
+  },
+  resolvedBanner: {
+    borderRadius: 8,
+    padding: 24,
+    backgroundColor: '#D1FAE5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resolvedBannerText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+    textAlign: 'center',
+    lineHeight: 24,
   },
 
   // Shared card shell
