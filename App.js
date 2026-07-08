@@ -785,6 +785,7 @@ function CheckInScreen({ navigation, route }) {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [inputMode, setInputMode] = useState('voice'); // 'voice' | 'type'
   const [typedText, setTypedText] = useState('');
+  const [inputExpanded, setInputExpanded] = useState(false);
   const [dailyCount, setDailyCount] = useState(0);
   const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -1855,14 +1856,14 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             <View style={checkIn.modeToggle}>
               <TouchableOpacity
                 style={[checkIn.modeBtn, inputMode === 'voice' && checkIn.modeBtnActive]}
-                onPress={() => setInputMode('voice')}
+                onPress={() => { setInputMode('voice'); setInputExpanded(false); }}
                 activeOpacity={0.8}
               >
                 <Text style={[checkIn.modeBtnText, inputMode === 'voice' && checkIn.modeBtnActiveText]}>Voice</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[checkIn.modeBtn, inputMode === 'type' && checkIn.modeBtnActive]}
-                onPress={() => setInputMode('type')}
+                onPress={() => { setInputMode('type'); setInputExpanded(false); }}
                 activeOpacity={0.8}
               >
                 <Text style={[checkIn.modeBtnText, inputMode === 'type' && checkIn.modeBtnActiveText]}>Type</Text>
@@ -1921,7 +1922,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             ) : (
               <>
                 <TextInput
-                  style={checkIn.typeInput}
+                  style={[checkIn.typeInput, { height: inputExpanded ? 120 : 50 }]}
                   multiline
                   placeholder="Describe what you observed..."
                   placeholderTextColor="#9CA3AF"
@@ -1929,6 +1930,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                   onChangeText={setTypedText}
                   editable={!isProcessing && !isAtLimit}
                   textAlignVertical="top"
+                  onFocus={() => setInputExpanded(true)}
+                  onBlur={() => setInputExpanded(false)}
                 />
                 {isAtLimit ? (
                   <Text style={checkIn.rateLimitMsg}>
@@ -2008,19 +2011,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                     onPress={() => navigation.navigate('Report', { dogId: currentDogId, dogName })}
                   >
                     <Text style={checkIn.actionPrimaryText}>View vet report</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[checkIn.actionBtn, checkIn.actionSecondary]}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      setTranscription('');
-                      setClaudeResponse('');
-                      setActiveAlertLevel(null);
-                      setActiveAlertId(null);
-                      setAlertAcknowledged(false);
-                    }}
-                  >
-                    <Text style={checkIn.actionSecondaryText}>Do another check-in</Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -2230,7 +2220,7 @@ const generateVetReport = async (dogId, periodDays = 30) => {
   const [checkInsRes, signalsRes, alertsRes, healthEventsRes] = await Promise.all([
     supabase.from('check_ins').select('check_in_id, input_classification, check_in_text, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
     supabase.from('signals').select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at').eq('dog_id', dogId).gte('created_at', sinceIso),
-    supabase.from('alerts').select('alert_level, alert_trigger_reason, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
+    supabase.from('alerts').select('alert_level, alert_trigger_reason, alert_status, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
     supabase.from('health_events').select('event_title, event_type, event_date').eq('dog_id', dogId).gte('event_date', period_start).order('event_date', { ascending: true }),
   ]);
 
@@ -2300,6 +2290,7 @@ const generateVetReport = async (dogId, periodDays = 30) => {
     date: dayKey(a.created_at),
     level: ALERT_LEVEL_NUM[a.alert_level] ?? 1,
     reason: a.alert_trigger_reason,
+    status: a.alert_status,
   }));
   const health_events = healthEventRows.map(h => ({
     date: h.event_date,
@@ -2307,8 +2298,9 @@ const generateVetReport = async (dogId, periodDays = 30) => {
     type: h.event_type,
   }));
 
+  const hasActiveAlert = alerts.some(a => a.status === 'active' || a.status === 'acknowledged');
   let overall_status;
-  if (alerts.length > 0) overall_status = 'alert_fired';
+  if (hasActiveAlert) overall_status = 'alert_fired';
   else if (concerning_day_count >= 3 || health_events.length > 0) overall_status = 'patterns_noted';
   else if (concerning_day_count >= 1) overall_status = 'mostly_normal';
   else overall_status = 'all_clear';
@@ -2408,7 +2400,13 @@ function ReportScreen({ navigation, route }) {
     );
   }
 
-  const { summary_data, overall_status } = report;
+  const { summary_data, overall_status: savedStatus } = report;
+  const hasActiveAlert = summary_data.alerts.some(a => a.status === 'active' || a.status === 'acknowledged');
+  const overall_status = savedStatus === 'alert_fired' && !hasActiveAlert
+    ? (summary_data.concerning_day_count >= 3 || summary_data.health_events?.length > 0 ? 'patterns_noted'
+      : summary_data.concerning_day_count >= 1 ? 'mostly_normal'
+      : 'all_clear')
+    : savedStatus;
   const hero = STATUS_HERO_CONFIG[overall_status] ?? STATUS_HERO_CONFIG.all_clear;
 
   const weeks = chunkIntoWeeks(summary_data.days);
@@ -2506,7 +2504,17 @@ function ReportScreen({ navigation, route }) {
       {summary_data.alerts.length > 0 && (
         <View style={report_.alertStack}>
           {summary_data.alerts.slice().reverse().map((a, i) => {
+            const isResolved = a.status === 'resolved';
             const lc = ALERT_CARD_COLORS[a.level] ?? ALERT_CARD_COLORS[1];
+            if (isResolved) {
+              return (
+                <View key={i} style={[report_.alertCard, { borderLeftColor: '#059669', backgroundColor: '#ECFDF5' }]}>
+                  <Text style={report_.alertDate}>{formatShortDate(a.date)}</Text>
+                  <Text style={[report_.alertLevel, { color: '#059669' }]}>Vet update logged</Text>
+                  <Text style={report_.alertReason}>Follow up as needed.</Text>
+                </View>
+              );
+            }
             return (
               <View key={i} style={[report_.alertCard, { borderLeftColor: lc.border, backgroundColor: lc.bg }]}>
                 <Text style={report_.alertDate}>{formatShortDate(a.date)}</Text>
@@ -4497,7 +4505,7 @@ const checkIn = StyleSheet.create({
   },
   typeInput: {
     width: '100%',
-    height: 120,
+    height: 50,
     backgroundColor: '#FAFAF9',
     borderWidth: 1,
     borderColor: '#E5E7EB',
