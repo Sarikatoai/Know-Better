@@ -13,10 +13,12 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Alert,
   Animated,
+  Dimensions,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -120,41 +122,82 @@ const DOG_BREEDS = [
 
 // ─── Screen 1: Welcome ───────────────────────────────────────────────────────
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 function WelcomeScreen({ navigation }) {
+  const fadeAnim   = useRef(new Animated.Value(0)).current;
+  const scaleAnim  = useRef(new Animated.Value(1)).current;
+  const waveAnim   = useRef(new Animated.Value(0.2)).current;
+
+  useEffect(() => {
+    // Fade in on mount
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 350,
+      useNativeDriver: true,
+    }).start();
+
+    // Paw pulse loop
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(scaleAnim, { toValue: 1.05, duration: 1000, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1.0,  duration: 1000, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // Wave opacity float loop
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(waveAnim, { toValue: 0.30, duration: 2000, useNativeDriver: true }),
+        Animated.timing(waveAnim, { toValue: 0.15, duration: 2000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
   return (
-    <View style={welcome.container}>
+    <LinearGradient colors={['#0F6E56', '#0d5946']} style={welcome.gradient}>
       <StatusBar style="light" />
 
-      <View style={welcome.content}>
-        <MaterialCommunityIcons name="paw" size={80} color="#FFFFFF" />
-        <Text style={welcome.title} numberOfLines={1} adjustsFontSizeToFit>
-          Welcome to Know Better
-        </Text>
-        <Text style={welcome.subtitle}>
-          I would love to get to know your dog.
-        </Text>
-        <Text style={welcome.tagline}>
-          Daily check-ins help you notice patterns — good days and changing patterns both matter.
-        </Text>
-      </View>
+      <Animated.View style={[welcome.inner, { opacity: fadeAnim }]}>
+        {/* Icon */}
+        <Animated.View style={[welcome.iconWrap, { transform: [{ scale: scaleAnim }] }]}>
+          <MaterialCommunityIcons name="paw" size={96} color="#FFFFFF" />
+        </Animated.View>
 
-      <View style={welcome.footer}>
-        <TouchableOpacity
-          style={welcome.button}
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate('DogName')}
-        >
-          <Text style={welcome.buttonText}>Let's Go</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate('SignIn')} activeOpacity={0.7}>
-          <Text style={welcome.signIn}>
-            Already have an account?{' '}
-            <Text style={welcome.signInLink}>Sign in</Text>
+        {/* Copy */}
+        <View style={welcome.copy}>
+          <Text style={welcome.title}>Welcome to Know Better</Text>
+          <Text style={welcome.subtitle}>I would love to get to know your dog.</Text>
+          <Text style={welcome.tagline}>
+            Daily check-ins help you notice patterns — good days and changing patterns both matter.
           </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+        </View>
+
+        {/* Buttons */}
+        <View style={welcome.footer}>
+          <TouchableOpacity
+            style={welcome.button}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate('DogName')}
+          >
+            <Text style={welcome.buttonText}>Let's Go</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => navigation.navigate('SignIn')} activeOpacity={0.7}>
+            <Text style={welcome.signIn}>
+              Already have an account?{' '}
+              <Text style={welcome.signInLink}>Sign in</Text>
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
+      {/* Wave accent */}
+      <Animated.View
+        pointerEvents="none"
+        style={[welcome.wave, { opacity: waveAnim }]}
+      />
+    </LinearGradient>
   );
 }
 
@@ -3787,70 +3830,93 @@ function OtpScreen({ navigation, route }) {
 // ─── Styles: Welcome ─────────────────────────────────────────────────────────
 
 const welcome = StyleSheet.create({
-  container: {
+  gradient: {
     flex: 1,
-    backgroundColor: '#0F6E56',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 80,
-    paddingHorizontal: 32,
   },
-  content: {
+  inner: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    gap: 20,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  iconWrap: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  copy: {
+    alignItems: 'center',
+    marginTop: 24,
   },
   title: {
     fontSize: 28,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFFFFF',
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 18,
-    fontWeight: '300',
-    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 16,
+    fontWeight: '400',
+    color: 'rgba(255,255,255,0.82)',
     textAlign: 'center',
-    lineHeight: 26,
+    lineHeight: 24,
+    marginTop: 8,
   },
   tagline: {
-    fontSize: 13,
-    fontWeight: '300',
-    color: 'rgba(255, 255, 255, 0.65)',
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(245,241,232,0.72)',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 21,
+    marginTop: 12,
     paddingHorizontal: 8,
   },
   footer: {
     width: '100%',
     alignItems: 'center',
-    gap: 20,
+    gap: 16,
+    marginTop: 250,
+    marginBottom: 8,
   },
   button: {
     backgroundColor: '#FFFFFF',
     borderRadius: 4,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    minHeight: 44,
-    width: '100%',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    width: '90%',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#085041',
+    color: '#0F6E56',
   },
   signIn: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.75)',
+    fontWeight: '400',
+    color: 'rgba(255,255,255,0.70)',
   },
   signInLink: {
-    fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#F5F1E8',
     textDecorationLine: 'underline',
+  },
+  wave: {
+    position: 'absolute',
+    bottom: -40,
+    left: -SCREEN_WIDTH * 0.1,
+    width: SCREEN_WIDTH * 1.2,
+    height: 160,
+    backgroundColor: '#F5F1E8',
+    borderTopLeftRadius: SCREEN_WIDTH,
+    borderTopRightRadius: SCREEN_WIDTH,
   },
 });
 
