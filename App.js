@@ -1015,12 +1015,15 @@ function CheckInScreen({ navigation, route }) {
     });
   }, [route.params?.dogId]);
 
-  useFocusEffect(useCallback(() => {
-    setTranscription('');
-    setClaudeResponse('');
-    setTypedText('');
-    setInputExpanded(false);
-  }, []));
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      setTranscription('');
+      setClaudeResponse('');
+      setTypedText('');
+      setInputExpanded(false);
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     if (recordingState === 'recording') {
