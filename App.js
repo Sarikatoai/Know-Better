@@ -876,7 +876,7 @@ function CheckInScreen({ navigation, route }) {
   const [activeAlertId, setActiveAlertId] = useState(null);
   const [alertAcknowledged, setAlertAcknowledged] = useState(false);
   const [showVetUpdateModal, setShowVetUpdateModal] = useState(false);
-  const [vetVisitDate, setVetVisitDate] = useState('');
+  const [vetVisitDate, setVetVisitDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [vetFeedback, setVetFeedback] = useState('');
   const [treatmentGiven, setTreatmentGiven] = useState('');
   const [vetNotes, setVetNotes] = useState('');
@@ -2924,7 +2924,7 @@ function AlertsHistoryScreen({ navigation, route }) {
   const [isAcknowledging, setIsAcknowledging] = useState(false);
 
   const [showVetModal, setShowVetModal] = useState(false);
-  const [vetVisitDate, setVetVisitDate] = useState('');
+  const [vetVisitDate, setVetVisitDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [vetFeedback, setVetFeedback] = useState('');
   const [treatmentGiven, setTreatmentGiven] = useState('');
   const [vetNotes, setVetNotes] = useState('');
