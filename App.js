@@ -1530,7 +1530,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
   const acknowledgeAlert = async () => {
     if (!activeAlertId) return;
     await supabase.from('alerts').update({
-      alert_status: 'acknowledged',
+      alert_status: activeAlertLevel === 1 ? 'resolved' : 'acknowledged',
       acknowledged_at: new Date().toISOString(),
     }).eq('alert_id', activeAlertId);
     if (activeAlertLevel === 1) {
@@ -3001,11 +3001,12 @@ function AlertsHistoryScreen({ navigation, route }) {
   const handleAcknowledge = async () => {
     if (!selectedAlert || !dogId) return;
     setIsAcknowledging(true);
+    const isLevel1 = (ALERT_LEVEL_NUM[selectedAlert.alert_level] ?? 1) === 1;
     await supabase.from('alerts').update({
-      alert_status: 'acknowledged',
+      alert_status: isLevel1 ? 'resolved' : 'acknowledged',
       acknowledged_at: new Date().toISOString(),
     }).eq('alert_id', selectedAlert.alert_id);
-    if ((ALERT_LEVEL_NUM[selectedAlert.alert_level] ?? 1) === 1) {
+    if (isLevel1) {
       await resetBaselineForDog(dogId);
     }
     setIsAcknowledging(false);
