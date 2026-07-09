@@ -131,12 +131,16 @@ function WelcomeVideo() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [hasFinished, setHasFinished] = useState(false);
 
   const handlePress = async () => {
     if (!videoRef.current || !isLoaded) return;
     try {
       if (isPlaying) {
         await videoRef.current.pauseAsync();
+      } else if (hasFinished) {
+        setHasFinished(false);
+        await videoRef.current.replayAsync();
       } else {
         await videoRef.current.playAsync();
       }
@@ -159,7 +163,10 @@ function WelcomeVideo() {
         onLoad={() => setIsLoaded(true)}
         onPlaybackStatusUpdate={(status) => {
           if (status.isLoaded) setIsPlaying(status.isPlaying);
-          if (status.didJustFinish) setIsPlaying(false);
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+            setHasFinished(true);
+          }
         }}
         onError={() => setHasError(true)}
       />
@@ -218,9 +225,6 @@ function WelcomeScreen({ navigation }) {
         <View style={welcome.copy}>
           <Text style={welcome.title}>Welcome to Know Better</Text>
           <Text style={welcome.subtitle}>I would love to get to know your dog.</Text>
-          <Text style={welcome.tagline}>
-            Daily check-ins help you notice patterns — good days and changing patterns both matter.
-          </Text>
         </View>
 
         {/* Video */}
@@ -3930,7 +3934,7 @@ const welcome = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     gap: 16,
-    marginTop: 250,
+    marginTop: 40,
     marginBottom: 8,
   },
   button: {
