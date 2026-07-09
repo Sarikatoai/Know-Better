@@ -1015,6 +1015,13 @@ function CheckInScreen({ navigation, route }) {
     });
   }, [route.params?.dogId]);
 
+  useFocusEffect(useCallback(() => {
+    setTranscription('');
+    setClaudeResponse('');
+    setTypedText('');
+    setInputExpanded(false);
+  }, []));
+
   useEffect(() => {
     if (recordingState === 'recording') {
       Animated.loop(
