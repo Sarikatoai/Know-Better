@@ -891,6 +891,7 @@ function CheckInScreen({ navigation, route }) {
   const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
+  const scrollRef = useRef(null);
   const recordingRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const mediaChunksRef = useRef([]);
@@ -1954,9 +1955,11 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         </TouchableOpacity>
       ) : null}
 
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <ScrollView
+        ref={scrollRef}
         style={checkIn.scrollArea}
-        contentContainerStyle={checkIn.scrollContent}
+        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: 25 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -2041,7 +2044,10 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                   onChangeText={setTypedText}
                   editable={!isProcessing && !isAtLimit}
                   textAlignVertical="top"
-                  onFocus={() => setInputExpanded(true)}
+                  onFocus={() => {
+                    setInputExpanded(true);
+                    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+                  }}
                   onBlur={() => setInputExpanded(false)}
                 />
                 {isAtLimit ? (
@@ -2128,6 +2134,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             )}
           </>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <BurgerMenu
         isOpen={isMenuOpen}
