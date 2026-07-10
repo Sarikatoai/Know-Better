@@ -20,6 +20,7 @@ import {
   Animated,
   Dimensions,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -1027,6 +1028,13 @@ function CheckInScreen({ navigation, route }) {
   }, [navigation]);
 
   useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', () => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     if (recordingState === 'recording') {
       Animated.loop(
         Animated.sequence([
@@ -1959,7 +1967,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       <ScrollView
         ref={scrollRef}
         style={checkIn.scrollArea}
-        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: 18 }]}
+        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: 21 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -2044,10 +2052,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                   onChangeText={setTypedText}
                   editable={!isProcessing && !isAtLimit}
                   textAlignVertical="top"
-                  onFocus={() => {
-                    setInputExpanded(true);
-                    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
-                  }}
+                  onFocus={() => setInputExpanded(true)}
                   onBlur={() => setInputExpanded(false)}
                 />
                 {isAtLimit ? (
