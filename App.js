@@ -1395,9 +1395,9 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
-      // Alert suppression: max one alert per day
+      // Alert suppression: max one alert per day (UTC calendar day matches Supabase timestamps)
       const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      todayStart.setUTCHours(0, 0, 0, 0);
       const { data: todayAlerts } = await supabase
         .from('alerts')
         .select('alert_level')
@@ -1959,7 +1959,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       <ScrollView
         ref={scrollRef}
         style={checkIn.scrollArea}
-        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: 25 }]}
+        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: 18 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
