@@ -1468,6 +1468,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       }
 
       // Consecutive concerning days rule (relaxed thresholds during active treatment)
+      // baseline_active requires total_days >= 3, so Level 1/2 only need >= 3 days
       const ccd = b.consecutive_concerning_days ?? 0;
       const totalDays = b.total_days ?? 0;
       let alertLevel = null;
@@ -1475,15 +1476,14 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         console.log('[HealthEvent] treatment context active — using relaxed thresholds');
         if (ccd >= 5) alertLevel = 3;
         else if (ccd >= 3) alertLevel = 2;
-        else if (ccd >= 4) alertLevel = 1;
+        else if (ccd >= 2) alertLevel = 1;
       } else {
-        if      (ccd >= 5 && totalDays >= 6) alertLevel = 3;
-        else if (ccd >= 3 && totalDays >= 5) alertLevel = 2;
-        else if (ccd >= 2 && totalDays >= 5) alertLevel = 1;
+        if      (ccd >= 5 && totalDays >= 5) alertLevel = 3;
+        else if (ccd >= 3 && totalDays >= 3) alertLevel = 2;
+        else if (ccd >= 2 && totalDays >= 3) alertLevel = 1;
 
         if (alertLevel === null && ccd >= 2) {
-          const needed = ccd >= 5 ? 10 : ccd >= 3 ? 7 : 5;
-          console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays}/${needed} days)`);
+          console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays} days)`);
         }
       }
       console.log('[Deviation] consecutive_concerning_days:', ccd, '| total_days:', totalDays, '→ alertLevel:', alertLevel);
@@ -1492,9 +1492,9 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       const ccfd = b.consecutive_combination_days ?? 0;
       const lowCount = b.low_signal_count_today ?? 0;
       let combinationAlertLevel = null;
-      if      (lowCount >= 3 && totalDays >= 7) combinationAlertLevel = 2;
-      else if (ccfd >= 3   && totalDays >= 7)  combinationAlertLevel = 2;
-      else if (ccfd >= 2   && totalDays >= 5)  combinationAlertLevel = 1;
+      if      (lowCount >= 3 && totalDays >= 3) combinationAlertLevel = 2;
+      else if (ccfd >= 3   && totalDays >= 5)  combinationAlertLevel = 2;
+      else if (ccfd >= 2   && totalDays >= 3)  combinationAlertLevel = 1;
       console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '| total_days:', totalDays, '→ combinationAlertLevel:', combinationAlertLevel);
 
       // Final: highest level from either rule
