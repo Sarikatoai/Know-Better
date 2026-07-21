@@ -1,3 +1,5 @@
+import * as Sentry from '@sentry/react-native';
+import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
 import { sendPushNotification, setupPushNotifications } from './lib/notifications';
 import BurgerMenu from './components/BurgerMenu';
@@ -32,6 +34,37 @@ import {
   View,
 } from 'react-native';
 
+
+// ─── Sentry — crash reporting, initialize before all other code ──────────────
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+  environment: 'beta',
+  enableAutoSessionTracking: true,
+  debug: __DEV__,
+});
+
+// ─── Langfuse — LLM observability ────────────────────────────────────────────
+const langfuse = new Langfuse({
+  publicKey: process.env.EXPO_PUBLIC_LANGFUSE_PUBLIC_KEY,
+  secretKey: process.env.EXPO_PUBLIC_LANGFUSE_SECRET_KEY,
+  baseUrl: process.env.EXPO_PUBLIC_LANGFUSE_HOST || 'https://us.cloud.langfuse.com',
+  flushAt: 1,
+  flushInterval: 10000,
+});
+
+// ─── Analytics event logger ──────────────────────────────────────────────────
+const logAnalyticsEvent = async (userId, eventName, eventData = {}) => {
+  try {
+    await supabase.from('analytics_events').insert({
+      user_id: userId,
+      event_name: eventName,
+      event_data: eventData,
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.log('[Analytics] logEvent error:', eventName, err);
+  }
+};
 
 const Stack = createNativeStackNavigator();
 
@@ -919,6 +952,8 @@ function CheckInScreen({ navigation, route }) {
       const userId = session.user.id;
       userIdRef.current = userId;
       fetchDailyCount(userId);
+      Sentry.setUser({ id: userId });
+      logAnalyticsEvent(userId, 'app_open', {});
 
       if (Platform.OS !== 'web') {
         const { token } = await setupPushNotifications();
@@ -1181,6 +1216,14 @@ function CheckInScreen({ navigation, route }) {
   };
 
   const extractHealthEvent = async (transcriptionText, checkInId, dogId, familyMemberId) => {
+    const generation = langfuse.generation({
+      name: 'Claude - Health Event Extraction',
+      model: 'claude-sonnet-4-5',
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogId, check_in_id: checkInId },
+      input: transcriptionText,
+      startTime: new Date(),
+    });
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -1203,6 +1246,11 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       const rawText = data.content?.[0]?.text ?? '';
       const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       const extracted = JSON.parse(cleaned);
+      generation.end({
+        output: extracted,
+        usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+        endTime: new Date(),
+      });
       console.log('[HealthEvent] extracted:', JSON.stringify(extracted));
 
       const today = new Date().toISOString().split('T')[0];
@@ -1219,6 +1267,8 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       if (error) console.log('[HealthEvent] insert error:', error);
       else console.log('[HealthEvent] saved:', extracted.event_title);
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[HealthEvent] error:', err);
     }
   };
@@ -1271,7 +1321,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
   const getDailySummary = async (dogId) => {
     try {
       const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      todayStart.setUTCHours(0, 0, 0, 0); // UTC matches Supabase timestamp storage
       const { data, error } = await supabase
         .from('signals')
         .select('appetite, energy, water_intake, demeanor, vomiting, elimination')
@@ -1468,7 +1518,11 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
           alert_status: 'active',
         }).select('alert_id').single();
         if (alertError) console.log('[Deviation] alert insert error:', alertError);
-        else { console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason); savedAlertId = alertData?.alert_id ?? null; }
+        else {
+          console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason);
+          savedAlertId = alertData?.alert_id ?? null;
+          logAnalyticsEvent(userIdRef.current, 'alert_fired', { dog_id: dogId, alert_level: finalLevel, trigger_reason: alert_trigger_reason });
+        }
       }
 
       const consecutiveDays = (alertLevel ?? 0) >= (combinationAlertLevel ?? 0) ? ccd : ccfd;
@@ -1498,6 +1552,18 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
     } else {
       systemPrompt = 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
     }
+    const traceLabel = alertLevel ? `Claude - Alert Level ${alertLevel}` : 'Claude - Check-in Response';
+    const trace = langfuse.trace({
+      name: traceLabel,
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogIdRef.current, check_in_id: checkInId, classification, alert_level: alertLevel },
+    });
+    const generation = trace.generation({
+      name: traceLabel,
+      model: 'claude-sonnet-4-5',
+      input: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcriptionText }],
+      startTime: new Date(),
+    });
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -1518,6 +1584,11 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       console.log('[Claude] result:', JSON.stringify(data));
       if (data.content?.[0]?.text) {
         const responseText = data.content[0].text;
+        generation.end({
+          output: responseText,
+          usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+          endTime: new Date(),
+        });
         setClaudeResponse(responseText);
         setActiveAlertLevel(alertLevel);
         setActiveAlertId(alertId);
@@ -1529,6 +1600,8 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         }
       }
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[Claude] error:', err);
     } finally {
       setIsClaudeLoading(false);
@@ -1552,6 +1625,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       alert_status: activeAlertLevel === 1 ? 'resolved' : 'acknowledged',
       acknowledged_at: new Date().toISOString(),
     }).eq('alert_id', activeAlertId);
+    logAnalyticsEvent(userIdRef.current, 'alert_acknowledged', { dog_id: currentDogId, alert_level: activeAlertLevel, alert_id: activeAlertId });
     if (activeAlertLevel === 1) {
       setActiveAlertLevel(null);
       setActiveAlertId(null);
@@ -1579,6 +1653,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         vet_update_logged_at: new Date().toISOString(),
       }).eq('alert_id', activeAlertId);
       await resetBaseline(currentDogId);
+      logAnalyticsEvent(userIdRef.current, 'vet_update_logged', { dog_id: currentDogId, alert_id: activeAlertId });
       setShowVetUpdateModal(false);
       setActiveAlertLevel(null);
       setActiveAlertId(null);
@@ -1597,6 +1672,14 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
   };
 
   const extractSignals = async (transcriptionText, checkInId, dogId) => {
+    const generation = langfuse.generation({
+      name: 'Claude - Signal Extraction',
+      model: 'claude-sonnet-4-5',
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogId, check_in_id: checkInId },
+      input: transcriptionText,
+      startTime: new Date(),
+    });
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -1624,6 +1707,11 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
       const rawText = data.content?.[0]?.text ?? '';
       const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       const signals = JSON.parse(cleaned);
+      generation.end({
+        output: signals,
+        usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+        endTime: new Date(),
+      });
       console.log('[Signals] extracted:', JSON.stringify(signals));
 
       const { error } = await supabase.from('signals').insert({
@@ -1635,11 +1723,21 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
       if (error) console.log('[Signals] insert error:', error);
       else console.log('[Signals] saved');
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[Signals] error:', err);
     }
   };
 
   const classifyCheckIn = async (transcriptionText) => {
+    const generation = langfuse.generation({
+      name: 'Claude - Classification',
+      model: 'claude-sonnet-4-5',
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogIdRef.current },
+      input: transcriptionText,
+      startTime: new Date(),
+    });
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -1665,9 +1763,16 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       const raw = data.content?.[0]?.text?.trim().toUpperCase();
       const valid = ['NORMAL', 'CONCERNING', 'HEALTH_EVENT', 'IRRELEVANT'];
       const classification = valid.includes(raw) ? raw.toLowerCase() : 'irrelevant';
+      generation.end({
+        output: classification,
+        usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+        endTime: new Date(),
+      });
       console.log('[Classify] result:', classification);
       return classification;
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[Classify] error:', err);
       return 'irrelevant';
     }
@@ -1776,6 +1881,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           const classification = await classifyCheckIn(result.text);
           const treatmentActive = await getActiveTreatment(dogIdRef.current);
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification, treatmentActive);
+          if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {
             extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
           }
@@ -1790,6 +1896,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
         }
       } catch (err) {
+        Sentry.captureException(err);
         console.log('[Whisper] error:', err);
       } finally {
         setRecordingState('idle');
@@ -1833,6 +1940,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           const classification = await classifyCheckIn(result.text);
           const treatmentActive = await getActiveTreatment(dogIdRef.current);
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification, treatmentActive);
+          if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {
             extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
           }
@@ -1847,6 +1955,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
         }
       } catch (err) {
+        Sentry.captureException(err);
         console.log('[Whisper] error:', err);
       } finally {
         setRecordingState('idle');
@@ -1901,6 +2010,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           if (!checkInError) {
             checkInId = checkInData.check_in_id;
             setDailyCount(c => c + 1);
+            logAnalyticsEvent(userId, 'check_in_created', { dog_id: dogId, check_in_type: 'text', classification });
           } else {
             console.log('[TextCheckIn] insert error:', checkInError);
           }
@@ -1921,6 +2031,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogId, checkInId, treatmentActive);
       callClaude(text, checkInId, classification, alertLevel, consecutiveDays, alertId);
     } catch (err) {
+      Sentry.captureException(err);
       console.log('[TextCheckIn] error:', err);
     } finally {
       setRecordingState('idle');
@@ -3624,7 +3735,7 @@ const saveOnboardingData = async (session, stored) => {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function App() {
   const navigationRef = useNavigationContainerRef();
 
   useEffect(() => {
@@ -3745,6 +3856,7 @@ export default function App() {
               },
             }]);
 
+            logAnalyticsEvent(session.user.id, 'user_signup', { email: session.user.email });
             saveOnboardingData(session, stored).catch((err) => {
               console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
               Alert.alert(
@@ -3807,6 +3919,8 @@ export default function App() {
     </NavigationContainer>
   );
 }
+
+export default Sentry.wrap(App);
 
 // ─── Screen: OTP Code Entry ───────────────────────────────────────────────────
 
