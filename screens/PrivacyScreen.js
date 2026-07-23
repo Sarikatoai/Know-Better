@@ -11,24 +11,91 @@ export default function PrivacyScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Privacy Policy</Text>
+        <Text style={styles.lastUpdated}>Last updated: July 22, 2026</Text>
 
-        <Section heading="Your data is private">
-          Know Better does not sell, share, or rent your personal information or your dog's data.
+        <Section heading="Introduction">
+          Know Better is an AI-powered mobile app that helps dog owners track behavioral patterns and detect health changes early. This policy explains what personal information we collect, why we collect it, and how you can control it.{'\n\n'}We collect only what we need to provide the service, and we are committed to being transparent about every third party that touches your information.
         </Section>
 
-        <Section heading="What we collect">
-          {'- Your email address and authentication data\n- Check-in notes and dog behavioral data\n- Photos you upload'}
+        <Section heading="Information We Collect">
+          <SubSection heading="Account and authentication data">
+            When you create an account, we collect your email address to authenticate you via a magic link. We do not store passwords.
+          </SubSection>
+          <SubSection heading="Check-in notes and transcriptions">
+            When you log a check-in, we collect the text you enter or the transcription of your voice recording. Voice recordings are processed through Whisper (OpenAI's transcription API) and the resulting text is stored in your account. Raw audio files are stored separately.
+          </SubSection>
+          <SubSection heading="Dog profile information">
+            We collect your dog's name, breed, sex, date of birth, and any pre-existing health conditions you choose to share. We also collect a mood rating at onboarding.
+          </SubSection>
+          <SubSection heading="Behavioral and health data">
+            Every check-in you submit — observations, concerns, behavioral notes — is stored and analyzed to build your dog's baseline health pattern over time.
+          </SubSection>
+          <SubSection heading="Device information for crash reporting">
+            If the app crashes, we automatically collect diagnostic information including your device type, OS version, app version, and the sequence of actions that led to the error. We do not collect your name or email as part of crash reports.
+          </SubSection>
         </Section>
 
-        <Section heading="How we use it">
-          {'- To provide the Know Better service\n- To improve pattern detection accuracy\n- To show you insights about your dog\'s health'}
+        <Section heading="How We Use Your Information">
+          {'To provide the service — your check-in data, dog profile, and account information are used to generate responses, calculate behavioral baselines, and surface alerts.\n\n' +
+           'To power pattern detection — check-in text is sent to the Claude API for classification to determine whether an observation is routine, concerning, or a potential health event.\n\n' +
+           'To show insights and alerts — we use historical check-in data to calculate a rolling baseline. When check-ins deviate from that baseline, we surface an alert.\n\n' +
+           'To monitor app stability — crash reports are used solely to identify and fix software bugs.\n\n' +
+           'To track API performance — we log response times and usage metrics to ensure the app is fast and reliable.'}
         </Section>
 
-        <Section heading="Data storage">
-          All data is stored securely in Supabase with encryption at rest and in transit.
+        <Section heading="Third-Party Services">
+          <SubSection heading="Anthropic (Claude API)">
+            Your check-in text is sent to Anthropic's Claude API for classification and response generation. Per Anthropic's API data retention policy, prompt and completion data is automatically deleted after 7 days and is never used to train Anthropic's models. We do not send your name or email to Anthropic — only the check-in text and relevant dog context.
+          </SubSection>
+          <SubSection heading="Supabase">
+            All user data — your account, dog profiles, check-in history, and audio files — is stored in Supabase. Our instance is hosted in the EU region and all data is encrypted at rest and in transit.
+          </SubSection>
+          <SubSection heading="Sentry">
+            Sentry captures error and crash reports when the app encounters a problem. Reports include device and app metadata, but not your personal account data or check-in content.
+          </SubSection>
+          <SubSection heading="Langfuse">
+            Langfuse logs API call latency, token usage, and performance metrics for our Claude API integration. These logs are used for internal monitoring only. Langfuse does not have access to your full account data or personal profile.
+          </SubSection>
         </Section>
 
-        <Text style={styles.footer}>For the full privacy policy, visit knowbetter.app/privacy</Text>
+        <Section heading="Data Retention">
+          {'Account and dog profile — retained until you delete your account\n\n' +
+           'Check-in notes and transcriptions — retained indefinitely, you can delete at any time\n\n' +
+           'Raw audio recordings — deleted after 30 days\n\n' +
+           'Claude API inputs/outputs (Anthropic) — deleted after 7 days, never used for model training\n\n' +
+           'Crash reports (Sentry) — deleted after 90 days\n\n' +
+           'API performance logs (Langfuse) — deleted after 30 days'}
+        </Section>
+
+        <Section heading="Your Rights and Choices">
+          {'Access your data — you can view all check-in history and dog profile information directly in the app.\n\n' +
+           'Download your data — email us at knowbettersupport@gmail.com and we will prepare and send your data export within 30 days.\n\n' +
+           'Delete your account — email us at knowbettersupport@gmail.com with the subject line "Delete my account." We will complete the deletion within 30 days and confirm when it is done.\n\n' +
+           'To exercise any of these rights, contact knowbettersupport@gmail.com.'}
+        </Section>
+
+        <Section heading="Children's Privacy">
+          Know Better is not intended for children under 13 years of age. We do not knowingly collect personal information from anyone under 13. If you believe a child under 13 has created an account, please contact us at knowbettersupport@gmail.com and we will delete the account promptly.
+        </Section>
+
+        <Section heading="Security">
+          {'Encryption in transit — all data transmitted between your device and our servers uses TLS encryption.\n\n' +
+           'Encryption at rest — your data stored in Supabase is encrypted at rest.\n\n' +
+           'Secure authentication — we use magic link authentication so you never create or store a password with us.\n\n' +
+           'No system is completely secure. If you believe your account has been compromised, contact us immediately at knowbettersupport@gmail.com.'}
+        </Section>
+
+        <Section heading="International Data Transfers">
+          Our core database is hosted in the EU. When you use Know Better, your check-in text may be processed by third-party services (Anthropic, Sentry, Langfuse) that operate in the United States. All data transfers use encryption. We work only with providers who maintain appropriate data protection standards.
+        </Section>
+
+        <Section heading="Changes to This Policy">
+          We may update this Privacy Policy from time to time. When we make material changes — such as collecting new types of data or sharing data with new third parties — we will notify you through the app or by email before the change takes effect.
+        </Section>
+
+        <Section heading="Contact Us">
+          If you have questions about this policy, want to exercise your data rights, or have a privacy concern, email us at knowbettersupport@gmail.com. We aim to respond to all privacy inquiries within 5 business days.
+        </Section>
       </ScrollView>
     </View>
   );
@@ -38,6 +105,19 @@ function Section({ heading, children }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionHeading}>{heading}</Text>
+      {typeof children === 'string' ? (
+        <Text style={styles.sectionBody}>{children}</Text>
+      ) : (
+        <View>{children}</View>
+      )}
+    </View>
+  );
+}
+
+function SubSection({ heading, children }) {
+  return (
+    <View style={styles.subSection}>
+      <Text style={styles.subSectionHeading}>{heading}</Text>
       <Text style={styles.sectionBody}>{children}</Text>
     </View>
   );
@@ -67,26 +147,37 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: '#0F6E56',
+    marginBottom: 6,
+  },
+  lastUpdated: {
+    fontSize: 12,
+    color: '#AAAAAA',
     marginBottom: 28,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 28,
   },
   sectionHeading: {
     fontSize: 15,
     fontWeight: '700',
     color: '#1A3C34',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   sectionBody: {
     fontSize: 14,
     color: '#666666',
     lineHeight: 22,
   },
-  footer: {
+  subSection: {
+    marginBottom: 14,
+    paddingLeft: 12,
+    borderLeftWidth: 2,
+    borderLeftColor: '#E8F0EE',
+  },
+  subSectionHeading: {
     fontSize: 13,
-    color: '#AAAAAA',
-    marginTop: 8,
-    lineHeight: 20,
+    fontWeight: '700',
+    color: '#1A3C34',
+    marginBottom: 4,
   },
 });
