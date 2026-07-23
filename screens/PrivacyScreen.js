@@ -85,10 +85,6 @@ export default function PrivacyScreen({ navigation }) {
            'No system is completely secure. If you believe your account has been compromised, contact us immediately at knowbettersupport@gmail.com.'}
         </Section>
 
-        <Section heading="International Data Transfers">
-          Our core database is hosted in the EU. When you use Know Better, your check-in text may be processed by third-party services (Anthropic, Sentry, Langfuse) that operate in the United States. All data transfers use encryption. We work only with providers who maintain appropriate data protection standards.
-        </Section>
-
         <Section heading="Availability">
           Know Better is currently available in English only in select regions worldwide, with the exception of the European Union, California, and Quebec. We may expand language support and regional availability in the future.
         </Section>
