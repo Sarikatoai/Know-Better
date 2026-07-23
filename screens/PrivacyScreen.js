@@ -89,6 +89,10 @@ export default function PrivacyScreen({ navigation }) {
           Our core database is hosted in the EU. When you use Know Better, your check-in text may be processed by third-party services (Anthropic, Sentry, Langfuse) that operate in the United States. All data transfers use encryption. We work only with providers who maintain appropriate data protection standards.
         </Section>
 
+        <Section heading="Availability">
+          Know Better is currently available in English only in select regions worldwide, with the exception of the European Union, California, and Quebec. We may expand language support and regional availability in the future.
+        </Section>
+
         <Section heading="Changes to This Policy">
           We may update this Privacy Policy from time to time. When we make material changes — such as collecting new types of data or sharing data with new third parties — we will notify you through the app or by email before the change takes effect.
         </Section>
