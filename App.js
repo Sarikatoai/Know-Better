@@ -36,12 +36,16 @@ import {
 
 
 // ─── Sentry — crash reporting, initialize before all other code ──────────────
-Sentry.init({
-  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
-  environment: 'beta',
-  enableAutoSessionTracking: true,
-  debug: __DEV__,
-});
+try {
+  Sentry.init({
+    dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+    environment: 'beta',
+    enableAutoSessionTracking: true,
+    debug: __DEV__,
+  });
+} catch (e) {
+  console.log('[Sentry] init failed:', e?.message);
+}
 
 // Langfuse browser build references localStorage, which doesn't exist in React Native
 if (typeof localStorage === 'undefined') {
@@ -49,13 +53,19 @@ if (typeof localStorage === 'undefined') {
 }
 
 // ─── Langfuse — LLM observability ────────────────────────────────────────────
-const langfuse = new Langfuse({
-  publicKey: process.env.EXPO_PUBLIC_LANGFUSE_PUBLIC_KEY,
-  secretKey: process.env.EXPO_PUBLIC_LANGFUSE_SECRET_KEY,
-  baseUrl: process.env.EXPO_PUBLIC_LANGFUSE_HOST || 'https://us.cloud.langfuse.com',
-  flushAt: 1,
-  flushInterval: 10000,
-});
+let langfuse;
+try {
+  langfuse = new Langfuse({
+    publicKey: process.env.EXPO_PUBLIC_LANGFUSE_PUBLIC_KEY,
+    secretKey: process.env.EXPO_PUBLIC_LANGFUSE_SECRET_KEY,
+    baseUrl: process.env.EXPO_PUBLIC_LANGFUSE_HOST || 'https://us.cloud.langfuse.com',
+    flushAt: 1,
+    flushInterval: 10000,
+  });
+} catch (e) {
+  console.log('[Langfuse] init failed:', e?.message);
+  langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ end: () => {} }) };
+}
 
 // ─── Analytics event logger ──────────────────────────────────────────────────
 const logAnalyticsEvent = async (userId, eventName, eventData = {}) => {
@@ -3925,7 +3935,10 @@ function App() {
   );
 }
 
-export default Sentry.wrap(App);
+const WrappedApp = (() => {
+  try { return Sentry.wrap(App); } catch (e) { return App; }
+})();
+export default WrappedApp;
 
 // ─── Screen: OTP Code Entry ───────────────────────────────────────────────────
 
