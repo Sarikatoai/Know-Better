@@ -43,6 +43,11 @@ Sentry.init({
   debug: __DEV__,
 });
 
+// Langfuse browser build references localStorage, which doesn't exist in React Native
+if (typeof localStorage === 'undefined') {
+  global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+}
+
 // ─── Langfuse — LLM observability ────────────────────────────────────────────
 const langfuse = new Langfuse({
   publicKey: process.env.EXPO_PUBLIC_LANGFUSE_PUBLIC_KEY,
