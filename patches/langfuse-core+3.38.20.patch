@@ -1,0 +1,15 @@
+diff --git a/node_modules/langfuse-core/lib/index.cjs.js b/node_modules/langfuse-core/lib/index.cjs.js
+index 7143961..f6e3e59 100644
+--- a/node_modules/langfuse-core/lib/index.cjs.js
++++ b/node_modules/langfuse-core/lib/index.cjs.js
+@@ -494,8 +494,8 @@ let cryptoModule = null;
+ // Use wrapper to prevent bundlers from trying to resolve the dynamic import
+ // Otherwise, the import will be incorrectly resolved as a static import even though it's dynamic
+ // Test for browser environment would fail because the import will be incorrectly resolved as a static import and fs and crypto will be unavailable
+-const dynamicImport = module => {
+-  return import( /* webpackIgnore: true */module);
++const dynamicImport = _module => {
++  return Promise.resolve({});
+ };
+ if (typeof globalThis.Deno !== "undefined") {
+   // Deno
