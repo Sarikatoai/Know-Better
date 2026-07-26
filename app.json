@@ -31,8 +31,6 @@
       }
     },
     "owner": "sarikasonawane",
-    "plugins": [
-      "@sentry/react-native"
-    ]
+    "plugins": []
   }
 }

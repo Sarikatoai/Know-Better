@@ -1,4 +1,5 @@
-import * as Sentry from '@sentry/react-native';
+// Sentry temporarily disabled for white-screen diagnosis
+const Sentry = { init: () => {}, setUser: () => {}, captureException: () => {}, wrap: (c) => c };
 import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
 import { sendPushNotification, setupPushNotifications } from './lib/notifications';
