@@ -1,7 +1,5 @@
-// Sentry temporarily disabled for white-screen diagnosis
-const Sentry = { init: () => {}, setUser: () => {}, captureException: () => {}, wrap: (c) => c };
-// Langfuse temporarily disabled for white-screen diagnosis
-const Langfuse = null;
+import * as Sentry from '@sentry/react-native';
+import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
 import { sendPushNotification, setupPushNotifications } from './lib/notifications';
 import BurgerMenu from './components/BurgerMenu';
@@ -66,7 +64,7 @@ try {
   });
 } catch (e) {
   console.log('[Langfuse] init failed:', e?.message);
-  langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ end: () => {} }) };
+  langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ generation: () => ({ end: () => {} }), end: () => {} }) };
 }
 
 // ─── Analytics event logger ──────────────────────────────────────────────────
@@ -82,6 +80,13 @@ const logAnalyticsEvent = async (userId, eventName, eventData = {}) => {
     console.log('[Analytics] logEvent error:', eventName, err);
   }
 };
+
+const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(reader.result.split(',')[1]);
+  reader.onerror = reject;
+  reader.readAsDataURL(blob);
+});
 
 const Stack = createNativeStackNavigator();
 
@@ -954,11 +959,6 @@ function CheckInScreen({ navigation, route }) {
 
   useEffect(() => {
     const init = async () => {
-      const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-      console.log('[ENV] EXPO_PUBLIC_OPENAI_API_KEY first 10 chars:', key ? key.slice(0, 10) : 'UNDEFINED — restart Metro after .env changes');
-      const anthropicKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
-      console.log('[ENV] EXPO_PUBLIC_ANTHROPIC_API_KEY first 10 chars:', anthropicKey ? anthropicKey.slice(0, 10) : 'UNDEFINED — restart Metro after .env changes');
-
       if (Platform.OS !== 'web') {
         const { status } = await Audio.requestPermissionsAsync();
         if (status !== 'granted') setPermissionDenied(true);
@@ -1242,24 +1242,17 @@ function CheckInScreen({ navigation, route }) {
       startTime: new Date(),
     });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 256,
           system: `You are analyzing a dog owner's check-in that mentions a significant medical event. Extract the following and return as JSON only:
 { "event_title": "brief title of the event", "event_type": "critical, medium, or low", "event_description": "what happened in plain language", "treatment_active": true }
 event_type guide: critical = surgery, hospitalization, serious diagnosis. medium = vet visit, new medication, minor procedure. low = routine checkup, vaccination.`,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       const rawText = data.content?.[0]?.text ?? '';
       const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       const extracted = JSON.parse(cleaned);
@@ -1582,22 +1575,15 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       startTime: new Date(),
     });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 256,
           system: systemPrompt,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       console.log('[Claude] result:', JSON.stringify(data));
       if (data.content?.[0]?.text) {
         const responseText = data.content[0].text;
@@ -1622,6 +1608,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       console.log('[Claude] error:', err);
     } finally {
       setIsClaudeLoading(false);
+      try { langfuse.flush(); } catch (e) {}
     }
   };
 
@@ -1698,15 +1685,8 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       startTime: new Date(),
     });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 256,
           system: `You are analyzing a dog owner's check-in about their dog. Extract the state of each behavioral dimension mentioned. Return a JSON object only — no other text. Use these exact keys and values:
@@ -1718,9 +1698,9 @@ demeanor: normal, low, or null
 vomiting: none, once, multiple, or null
 Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", "water_intake": "null", "demeanor": "low", "vomiting": "none"}`,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       const rawText = data.content?.[0]?.text ?? '';
       const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       const signals = JSON.parse(cleaned);
@@ -1756,15 +1736,8 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
       startTime: new Date(),
     });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 16,
           system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify the text into exactly one of these four categories:
@@ -1774,9 +1747,9 @@ HEALTH_EVENT — the owner mentions a significant medical event. Examples: vet v
 IRRELEVANT — the text contains no useful information about the dog's health or daily routine. Examples: accidental recording, conversation not about the dog, nonsensical content.
 Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       const raw = data.content?.[0]?.text?.trim().toUpperCase();
       const valid = ['NORMAL', 'CONCERNING', 'HEALTH_EVENT', 'IRRELEVANT'];
       const classification = valid.includes(raw) ? raw.toLowerCase() : 'irrelevant';
@@ -1786,6 +1759,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         endTime: new Date(),
       });
       console.log('[Classify] result:', classification);
+      try { langfuse.flush(); } catch (e) {}
       return classification;
     } catch (err) {
       generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
@@ -1879,19 +1853,11 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         mediaRecorderRef.current = null;
         mediaChunksRef.current = [];
 
-        const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'mp4' : 'webm';
-        const file = new File([blob], `recording.${ext}`, { type: blob.type });
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('model', 'whisper-1');
-        formData.append('language', 'en');
-
-        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}` },
-          body: formData,
+        const audioBase64 = await blobToBase64(blob);
+        const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
+          body: { audio_base64: audioBase64, mime_type: blob.type, language: 'en' },
         });
-        const result = await response.json();
+        if (transcribeError) throw transcribeError;
         console.log('[Whisper] result:', JSON.stringify(result));
         if (result.text) {
           setTranscription(result.text);
@@ -1934,23 +1900,12 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         console.log('[Audio] blob MIME type: audio/m4a (native)');
         console.log('[Audio] recording duration (seconds):', durationSecs);
 
-        // Fetch blob for Supabase storage upload (runs in parallel with Whisper)
-        const blobPromise = fetch(uri).then(r => r.blob());
-
-        const formData = new FormData();
-        formData.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' });
-        formData.append('model', 'whisper-1');
-        formData.append('language', 'en');
-
-        const [whisperResponse, nativeBlob] = await Promise.all([
-          fetch('https://api.openai.com/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}` },
-            body: formData,
-          }),
-          blobPromise,
-        ]);
-        const result = await whisperResponse.json();
+        const nativeBlob = await fetch(uri).then(r => r.blob());
+        const audioBase64 = await blobToBase64(nativeBlob);
+        const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
+          body: { audio_base64: audioBase64, mime_type: 'audio/m4a', language: 'en' },
+        });
+        if (transcribeError) throw transcribeError;
         console.log('[Whisper] result:', JSON.stringify(result));
         if (result.text) {
           setTranscription(result.text);
