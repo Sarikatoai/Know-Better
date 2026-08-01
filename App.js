@@ -2860,8 +2860,8 @@ function CheckInHistoryScreen({ navigation, route }) {
 
   useEffect(() => {
     navigation.setOptions({
-      headerLeft: () => (
-        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingRight: 8 }}>
+      headerRight: () => (
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingLeft: 8 }}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
       ),
