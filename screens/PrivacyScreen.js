@@ -64,7 +64,7 @@ export default function PrivacyScreen({ navigation }) {
 
         <Section heading="Data Retention">
           {'Account and dog profile — retained until you delete your account\n\n' +
-           'Check-in notes and transcriptions — retained indefinitely, you can delete at any time\n\n' +
+           'Check-in notes and transcriptions — retained for 24 months after creation, then automatically deleted. You can manually delete check-ins at any time or export your data before expiration at knowbettersupport@gmail.com.\n\n' +
            'Raw audio recordings — deleted after 30 days\n\n' +
            'Claude API inputs/outputs (Anthropic) — deleted after 7 days, never used for model training\n\n' +
            'Crash reports (Sentry) — deleted after 90 days\n\n' +

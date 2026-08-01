@@ -55,6 +55,13 @@ MVP Phase 2 complete:
 - A day is "concerning" if any contributing check-in that day is classified as concerning
 - Max one alert per day per dog
 
+## Server-Side Jobs (Supabase Infrastructure)
+
+These are deployed in Supabase and not visible in the app code. Verify via Supabase dashboard → Edge Functions / SQL editor (`SELECT * FROM cron.job`).
+
+- **Edge Function:** `super-api` — handles server-side operations called by cron jobs
+- **pg_cron job:** `delete-old-audio-files` — runs daily at 2 AM UTC, calls `super-api` to delete audio files older than 30 days from the `checkins` storage bucket
+
 ## Database Tables
 
 - `users` — user_id, first_name, email
