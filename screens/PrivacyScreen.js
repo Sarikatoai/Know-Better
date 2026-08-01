@@ -11,7 +11,7 @@ export default function PrivacyScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Privacy Policy</Text>
-        <Text style={styles.lastUpdated}>Last updated: July 22, 2026</Text>
+        <Text style={styles.lastUpdated}>Last updated: August 1, 2026</Text>
 
         <Section heading="Introduction">
           Know Better is an AI-powered mobile app that helps dog owners track behavioral patterns and detect health changes early. This policy explains what personal information we collect, why we collect it, and how you can control it.{'\n\n'}We collect only what we need to provide the service, and we are committed to being transparent about every third party that touches your information.

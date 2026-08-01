@@ -11,7 +11,7 @@ export default function TermsScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Terms of Service</Text>
-        <Text style={styles.lastUpdated}>Last updated: July 22, 2026</Text>
+        <Text style={styles.lastUpdated}>Last updated: August 1, 2026</Text>
 
         <Section heading="1. Acceptance of Terms">
           By downloading, accessing, or using Know Better, you agree to be bound by these Terms of Service. If you do not agree, do not use the app.{'\n\n'}We may update these Terms from time to time. Continued use of Know Better after changes are posted constitutes acceptance of the revised Terms. We will notify you of material changes via the app or email.
