@@ -6,6 +6,11 @@
     "orientation": "portrait",
     "scheme": "knowbetter",
     "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAFAF9"
+    },
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
