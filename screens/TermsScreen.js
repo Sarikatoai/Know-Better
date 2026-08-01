@@ -73,8 +73,8 @@ export default function TermsScreen({ navigation }) {
           We may add, modify, or remove features at any time. We will notify users of material changes via the app or email and will aim to provide reasonable notice before significant changes take effect.
         </Section>
 
-        <Section heading="12. Governing Law">
-          These Terms are governed by the laws of the Commonwealth of Pennsylvania, without regard to conflict of law principles. Any disputes arising from these Terms or your use of Know Better shall be resolved in the state or federal courts located in Pennsylvania, and you consent to personal jurisdiction in those courts.
+        <Section heading="12. Dispute Resolution and Governing Law">
+          These Terms are governed by the laws of the Commonwealth of Pennsylvania, without regard to conflict of law principles.{'\n\n'}Any dispute arising from these Terms or your use of Know Better shall be resolved through binding arbitration administered by the American Arbitration Association (AAA) under its Consumer Arbitration Rules. The arbitration shall take place in Pennsylvania, and you consent to this forum. Each party shall bear its own costs and fees unless arbitration rules provide otherwise.{'\n\n'}This arbitration agreement does not apply to claims for injunctive relief or disputes involving intellectual property rights.
         </Section>
 
         <Section heading="13. Contact Us">
