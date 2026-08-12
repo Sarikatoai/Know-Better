@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/react-native';
 import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
-import { sendPushNotification, setupPushNotifications } from './lib/notifications';
+import { setupPushNotifications } from './lib/notifications';
 import BurgerMenu from './components/BurgerMenu';
 import DogSelectionScreen from './screens/DogSelectionScreen';
 import HelpScreen from './screens/HelpScreen';
@@ -14,6 +14,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -907,9 +908,21 @@ function CongratulationsScreen({ navigation, route }) {
 
 const DAILY_CHECKIN_LIMIT = 10;
 
+const localDayKey = (dateInput) => {
+  const d = new Date(dateInput);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const getCheckInTypeByTime = () => {
   const hour = new Date().getHours();
   return (hour >= 5 && hour < 17) ? 'morning' : 'evening';
+};
+
+const getTimeOfDay = () => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 18) return 'afternoon';
+  return 'evening';
 };
 
 const ALERT_BANNER_CONFIG = {
@@ -932,7 +945,7 @@ function CheckInScreen({ navigation, route }) {
   const [activeAlertId, setActiveAlertId] = useState(null);
   const [alertAcknowledged, setAlertAcknowledged] = useState(false);
   const [showVetUpdateModal, setShowVetUpdateModal] = useState(false);
-  const [vetVisitDate, setVetVisitDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [vetVisitDate, setVetVisitDate] = useState(() => localDayKey(new Date()));
   const [vetFeedback, setVetFeedback] = useState('');
   const [treatmentGiven, setTreatmentGiven] = useState('');
   const [vetNotes, setVetNotes] = useState('');
@@ -968,7 +981,7 @@ function CheckInScreen({ navigation, route }) {
       if (!session) return;
       const userId = session.user.id;
       userIdRef.current = userId;
-      fetchDailyCount(userId);
+      await supabase.from('users').update({ timezone_offset_minutes: -new Date().getTimezoneOffset() }).eq('user_id', userId);
       Sentry.setUser({ id: userId });
       logAnalyticsEvent(userId, 'app_open', {});
 
@@ -992,6 +1005,7 @@ function CheckInScreen({ navigation, route }) {
       const dogId = dogResult.data?.dog_id ?? null;
       dogIdRef.current = dogId;
       setCurrentDogId(dogId);
+      fetchDailyCount(dogId);
 
       const { data: familyData } = await supabase
         .from('family_members')
@@ -1108,16 +1122,14 @@ function CheckInScreen({ navigation, route }) {
     }
   }, [recordingState]);
 
-  const fetchDailyCount = async (userId) => {
+  const fetchDailyCount = async (dogId) => {
+    if (!dogId) { setDailyCountLoaded(true); return 0; }
     const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const { data: dogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
-    const dogIds = (dogs ?? []).map(d => d.dog_id);
-    if (dogIds.length === 0) { setDailyCountLoaded(true); return 0; }
+    todayStart.setHours(0, 0, 0, 0);
     const { count } = await supabase
       .from('check_ins')
       .select('check_in_id', { count: 'exact', head: true })
-      .in('dog_id', dogIds)
+      .eq('dog_id', dogId)
       .gte('created_at', todayStart.toISOString());
     const c = count ?? 0;
     setDailyCount(c);
@@ -1137,13 +1149,11 @@ function CheckInScreen({ navigation, route }) {
 
     // Hard rate limit check (server-side guard)
     const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const { data: userDogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
-    const allDogIds = (userDogs ?? []).map(d => d.dog_id);
+    todayStart.setHours(0, 0, 0, 0);
     const { count: todayCount } = await supabase
       .from('check_ins')
       .select('check_in_id', { count: 'exact', head: true })
-      .in('dog_id', allDogIds)
+      .eq('dog_id', dogId)
       .gte('created_at', todayStart.toISOString());
     if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
       console.log('[RateLimit] daily limit reached, blocking save');
@@ -1263,7 +1273,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       });
       console.log('[HealthEvent] extracted:', JSON.stringify(extracted));
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDayKey(new Date());
       const { error } = await supabase.from('health_events').insert({
         dog_id: dogId,
         family_member_id: familyMemberId,
@@ -1305,7 +1315,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const dayMap = {};
       for (const row of recent) {
-        const day = row.created_at.split('T')[0];
+        const day = localDayKey(row.created_at);
         if (!dayMap[day]) dayMap[day] = [];
         dayMap[day].push(row);
       }
@@ -1315,7 +1325,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning');
       if (isDayConcerning(dayMap[days[0]]) || isDayConcerning(dayMap[days[1]])) return;
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDayKey(new Date());
       const { error } = await supabase
         .from('health_events')
         .update({ treatment_active: false, event_end_date: today })
@@ -1331,7 +1341,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
   const getDailySummary = async (dogId) => {
     try {
       const todayStart = new Date();
-      todayStart.setUTCHours(0, 0, 0, 0); // UTC matches Supabase timestamp storage
+      todayStart.setHours(0, 0, 0, 0);
       const { data, error } = await supabase
         .from('signals')
         .select('appetite, energy, water_intake, demeanor, vomiting, elimination')
@@ -1368,7 +1378,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       // Group check-ins by calendar day
       const checkInsByDay = {};
       for (const row of data) {
-        const day = row.created_at.split('T')[0];
+        const day = localDayKey(row.created_at);
         if (!checkInsByDay[day]) checkInsByDay[day] = [];
         checkInsByDay[day].push(row);
       }
@@ -1408,13 +1418,13 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const signalDayMap = {};
       for (const row of (signalRows ?? [])) {
-        const day = row.created_at.split('T')[0];
+        const day = localDayKey(row.created_at);
         if (!signalDayMap[day]) signalDayMap[day] = [];
         signalDayMap[day].push(row);
       }
       let consecutive_combination_days = 0;
       for (let i = 0; i < 7; i++) {
-        const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const day = localDayKey(new Date(Date.now() - i * 24 * 60 * 60 * 1000));
         const dayRows = signalDayMap[day] ?? [];
         const dayLowCount = SIGNAL_DIMS.filter(dim => {
           const vals = dayRows.map(r => r[dim]).filter(v => v != null && v !== 'null');
@@ -1463,9 +1473,9 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
-      // Alert suppression: max one alert per day (UTC calendar day matches Supabase timestamps)
+      // Alert suppression: max one alert per day
       const todayStart = new Date();
-      todayStart.setUTCHours(0, 0, 0, 0);
+      todayStart.setHours(0, 0, 0, 0);
       const { data: todayAlerts } = await supabase
         .from('alerts')
         .select('alert_level')
@@ -1596,10 +1606,26 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         setActiveAlertLevel(alertLevel);
         setActiveAlertId(alertId);
         saveResponse(checkInId, responseText);
-        if (alertLevel === 2 || alertLevel === 3) {
-          setTimeout(() => {
-            sendPushNotification(userIdRef.current, name, `level_${alertLevel}`, responseText);
-          }, 60000);
+        if ((alertLevel === 2 || alertLevel === 3) && alertId) {
+          const now = new Date();
+          supabase.from('scheduled_notifications').insert([
+            {
+              user_id: userIdRef.current,
+              dog_id: dogIdRef.current,
+              alert_id: alertId,
+              alert_level: alertLevel,
+              notification_type: 'escalation_reminder',
+              scheduled_for: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
+            },
+            {
+              user_id: userIdRef.current,
+              dog_id: dogIdRef.current,
+              alert_id: alertId,
+              alert_level: alertLevel,
+              notification_type: 'vet_followup',
+              scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+            },
+          ]);
         }
       }
     } catch (err) {
@@ -1955,13 +1981,11 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       let checkInId = null;
       if (userId && dogId && familyMemberId) {
         const todayStart = new Date();
-        todayStart.setUTCHours(0, 0, 0, 0);
-        const { data: userDogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
-        const allDogIds = (userDogs ?? []).map(d => d.dog_id);
+        todayStart.setHours(0, 0, 0, 0);
         const { count: todayCount } = await supabase
           .from('check_ins')
           .select('check_in_id', { count: 'exact', head: true })
-          .in('dog_id', allDogIds)
+          .eq('dog_id', dogId)
           .gte('created_at', todayStart.toISOString());
         if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
           setDailyCount(todayCount ?? 0);
@@ -2022,10 +2046,10 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
           <Text style={checkIn.brand}>Know Better</Text>
-        </View>
+        </TouchableOpacity>
       </View>
 
       {dogName ? (
@@ -2054,8 +2078,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={checkIn.greeting}>Good morning, {userName || 'there'}.</Text>
-        <Text style={checkIn.question}>How did {dogName || 'your dog'}'s morning go?</Text>
+        <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName || 'there'}.</Text>
+        <Text style={checkIn.question}>How did {dogName || 'your dog'}'s {getTimeOfDay()} go?</Text>
 
         <>
             <View style={checkIn.modeToggle}>
@@ -2102,22 +2126,21 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                     </Animated.View>
                   </TouchableOpacity>
 
-                  <Text style={checkIn.listening}>
-                    {isAtLimit ? 'Daily limit reached' : isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
-                  </Text>
+                  {!isAtLimit && (
+                    <Text style={checkIn.listening}>
+                      {isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
+                    </Text>
+                  )}
 
                   {isAtLimit ? (
                     <Text style={checkIn.rateLimitMsg}>
-                      You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
+                      10 check-ins today, I'm all set. I'll see you tomorrow.
                     </Text>
                   ) : (
                     <>
-                      {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
-                        <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
-                      )}
                       {recordingState === 'idle' && !transcription && (
                         <Text style={checkIn.hint}>
-                          Tap the mic and tell me about {dogName || 'your dog'}'s morning
+                          Tap the mic and tell me about {dogName || 'your dog'}'s {getTimeOfDay()}
                         </Text>
                       )}
                     </>
@@ -2140,13 +2163,10 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 />
                 {isAtLimit ? (
                   <Text style={checkIn.rateLimitMsg}>
-                    You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
+                    10 check-ins today, I'm all set. I'll see you tomorrow.
                   </Text>
                 ) : (
                   <>
-                    {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
-                      <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
-                    )}
                     <TouchableOpacity
                       style={[checkIn.submitBtn, (!typedText.trim() || isProcessing || isAtLimit) && checkIn.submitBtnDisabled]}
                       onPress={handleTextSubmit}
@@ -2416,18 +2436,28 @@ const describeDayPlainly = (day) => {
   return parts.join(' ');
 };
 
-const generateVetReport = async (dogId, periodDays = 30) => {
-  const periodStartDate = new Date(Date.now() - (periodDays - 1) * 24 * 60 * 60 * 1000);
-  const period_start = periodStartDate.toISOString().split('T')[0];
-  const period_end = new Date().toISOString().split('T')[0];
-  const sinceIso = `${period_start}T00:00:00.000Z`;
-  const dayKey = (iso) => iso.split('T')[0];
+const generateVetReport = async (dogId, year, month) => {
+  const periodStartDate = new Date(year, month - 1, 1);
+  periodStartDate.setHours(0, 0, 0, 0);
+
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === (now.getMonth() + 1);
+  const periodEndDate = isCurrentMonth
+    ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+    : new Date(year, month, 0, 23, 59, 59, 999);
+
+  const period_start = localDayKey(periodStartDate);
+  const period_end = localDayKey(periodEndDate);
+  const sinceIso = periodStartDate.toISOString();
+  const untilIso = periodEndDate.toISOString();
+  const periodDays = Math.round((periodEndDate.getTime() - periodStartDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  const dayKey = (iso) => localDayKey(iso);
 
   const [checkInsRes, signalsRes, alertsRes, healthEventsRes] = await Promise.all([
-    supabase.from('check_ins').select('check_in_id, input_classification, check_in_text, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
-    supabase.from('signals').select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at').eq('dog_id', dogId).gte('created_at', sinceIso),
-    supabase.from('alerts').select('alert_level, alert_trigger_reason, alert_status, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
-    supabase.from('health_events').select('event_title, event_type, event_date').eq('dog_id', dogId).gte('event_date', period_start).order('event_date', { ascending: true }),
+    supabase.from('check_ins').select('check_in_id, input_classification, check_in_text, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).lte('created_at', untilIso).order('created_at', { ascending: true }),
+    supabase.from('signals').select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).lte('created_at', untilIso),
+    supabase.from('alerts').select('alert_level, alert_trigger_reason, alert_status, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).lte('created_at', untilIso).order('created_at', { ascending: true }),
+    supabase.from('health_events').select('event_title, event_type, event_date').eq('dog_id', dogId).gte('event_date', period_start).lte('event_date', period_end).order('event_date', { ascending: true }),
   ]);
 
   const checkIns = checkInsRes.data ?? [];
@@ -2455,7 +2485,7 @@ const generateVetReport = async (dogId, periodDays = 30) => {
   let concerning_day_count = 0;
 
   for (let i = 0; i < periodDays; i++) {
-    const day = new Date(periodStartDate.getTime() + i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const day = localDayKey(new Date(periodStartDate.getTime() + i * 24 * 60 * 60 * 1000));
     const dayCheckIns = checkInsByDay[day] ?? [];
     const dayAlerts = alertsByDay[day] ?? [];
     const dayHealthEvents = healthEventsByDay[day] ?? [];
@@ -2527,11 +2557,11 @@ const generateVetReport = async (dogId, periodDays = 30) => {
 
   const { data: inserted, error } = await supabase
     .from('vet_reports')
-    .insert({ dog_id: dogId, period_start, period_end, overall_status, summary_data })
+    .upsert({ dog_id: dogId, period_start, period_end, overall_status, summary_data }, { onConflict: 'dog_id,period_start' })
     .select('report_id, dog_id, period_start, period_end, overall_status, summary_data, generated_at')
     .single();
   if (error) {
-    console.log('[VetReport] insert error:', error);
+    console.log('[VetReport] upsert error:', error);
     return { report_id: null, dog_id: dogId, period_start, period_end, overall_status, summary_data, generated_at: new Date().toISOString() };
   }
   console.log('[VetReport] generated and saved — overall_status:', overall_status);
@@ -2547,15 +2577,6 @@ function ReportScreen({ navigation, route }) {
   const [selectedDay, setSelectedDay] = useState(null);
   const [weekIndex, setWeekIndex] = useState(null);
 
-  useEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7} style={{ paddingRight: 16 }}>
-          <MaterialCommunityIcons name="chevron-left" size={28} color="#0F6E56" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2585,7 +2606,8 @@ function ReportScreen({ navigation, route }) {
           if (error) console.log('[Report] load error:', error);
           if (!cancelled) setReport(data ?? null);
         } else {
-          const generated = await generateVetReport(resolvedDogId, 30);
+          const now = new Date();
+          const generated = await generateVetReport(resolvedDogId, now.getFullYear(), now.getMonth() + 1);
           if (!cancelled) setReport(generated);
         }
         if (!cancelled) setIsLoading(false);
@@ -2612,6 +2634,13 @@ function ReportScreen({ navigation, route }) {
   }
 
   const { summary_data, overall_status: savedStatus } = report;
+  if (!summary_data?.alerts || !summary_data?.days) {
+    return (
+      <View style={report_.loadingContainer}>
+        <Text style={report_.loadingText}>This report couldn't be loaded.</Text>
+      </View>
+    );
+  }
   const hasActiveAlert = summary_data.alerts.some(a => a.status === 'active');
   const overall_status = (savedStatus === 'alert_fired' || savedStatus === 'patterns_noted' || savedStatus === 'mostly_normal') && !hasActiveAlert && summary_data.alerts.length > 0
     ? 'all_clear'
@@ -2626,8 +2655,19 @@ function ReportScreen({ navigation, route }) {
     : '';
   const goToPrevWeek = () => setWeekIndex(Math.max(0, activeWeekIndex - 1));
   const goToNextWeek = () => setWeekIndex(Math.min(weeks.length - 1, activeWeekIndex + 1));
+  const periodTitle = report.period_start
+    ? new Date(`${report.period_start}T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : '';
 
   return (
+    <View style={{ flex: 1, backgroundColor: '#FAFAF9' }}>
+      <View style={report_.topBar}>
+        {periodTitle ? <Text style={report_.periodTitle}>{periodTitle}</Text> : <View />}
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={report_.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
     <ScrollView style={report_.container} contentContainerStyle={report_.content}>
 
       {/* 1 — Status Hero */}
@@ -2752,6 +2792,7 @@ function ReportScreen({ navigation, route }) {
       </TouchableOpacity>
 
     </ScrollView>
+    </View>
   );
 }
 
@@ -2760,16 +2801,6 @@ function ReportHistoryScreen({ navigation, route }) {
   const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  useEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingLeft: 8 }}>
-          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
 
   useEffect(() => {
     const load = async () => {
@@ -2782,11 +2813,49 @@ function ReportHistoryScreen({ navigation, route }) {
         }
       }
       if (!dogId) { setIsLoading(false); return; }
+
+      // Backfill any past months that have check-ins but no saved report
+      const { data: earliest } = await supabase
+        .from('check_ins')
+        .select('created_at')
+        .eq('dog_id', dogId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (earliest) {
+        const { data: existing } = await supabase
+          .from('vet_reports')
+          .select('period_start')
+          .eq('dog_id', dogId);
+        const existingMonths = new Set((existing ?? []).map(r => r.period_start.substring(0, 7)));
+
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        const startDate = new Date(earliest.created_at);
+        let y = startDate.getFullYear();
+        let m = startDate.getMonth() + 1;
+
+        while (y < currentYear || (y === currentYear && m < currentMonth)) {
+          const key = `${y}-${String(m).padStart(2, '0')}`;
+          if (!existingMonths.has(key)) {
+            await generateVetReport(dogId, y, m);
+          }
+          m++;
+          if (m > 12) { m = 1; y++; }
+        }
+      }
+
+      // Only show completed past months (exclude current month)
+      const now = new Date();
+      const currentMonthStart = localDayKey(new Date(now.getFullYear(), now.getMonth(), 1));
       const { data, error } = await supabase
         .from('vet_reports')
         .select('report_id, period_start, period_end, overall_status, generated_at')
         .eq('dog_id', dogId)
-        .order('generated_at', { ascending: false });
+        .lt('period_start', currentMonthStart)
+        .order('period_start', { ascending: false });
       if (error) console.log('[ReportHistory] query error:', error);
       setReports(data ?? []);
       setIsLoading(false);
@@ -2795,7 +2864,16 @@ function ReportHistoryScreen({ navigation, route }) {
   }, []);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#FAFAF9' }}>
+      <View style={reportHistory.topBar}>
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={reportHistory.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
     <ScrollView style={reportHistory.container} contentContainerStyle={reportHistory.content}>
       <Text style={reportHistory.title}>Report history</Text>
       {isLoading && <Text style={reportHistory.empty}>Loading…</Text>}
@@ -2859,16 +2937,6 @@ function CheckInHistoryScreen({ navigation, route }) {
   const dogIdsRef = useRef([]);
 
   useEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingLeft: 8 }}>
-          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
-
-  useEffect(() => {
     const init = async () => {
       let dogIds = [];
       if (paramDogId) {
@@ -2918,6 +2986,15 @@ function CheckInHistoryScreen({ navigation, route }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.color.offWhite }}>
+      <View style={ciHistory.topBar}>
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={ciHistory.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView contentContainerStyle={ciHistory.content}>
         {isLoading && <Text style={ciHistory.empty}>Loading…</Text>}
         {!isLoading && items.length === 0 && <Text style={ciHistory.empty}>No check-ins yet.</Text>}
@@ -3017,19 +3094,23 @@ const LEVEL_BADGE = {
 };
 
 function AlertsHistoryScreen({ navigation, route }) {
-  const { dogId: paramDogId, dogName: paramDogName } = route.params ?? {};
+  const { dogId: paramDogId, dogName: paramDogName, initialTab } = route.params ?? {};
   const [dogId, setDogId] = useState(paramDogId ?? null);
   const [dogName, setDogName] = useState(paramDogName ?? '');
-  const [activeTab, setActiveTab] = useState('active');
+  const [activeTab, setActiveTab] = useState(initialTab ?? 'active');
   const [alerts, setAlerts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (route.params?.initialTab) setActiveTab(route.params.initialTab);
+  }, [route.params?.initialTab]);
 
   const [showAckModal, setShowAckModal] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [isAcknowledging, setIsAcknowledging] = useState(false);
 
   const [showVetModal, setShowVetModal] = useState(false);
-  const [vetVisitDate, setVetVisitDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [vetVisitDate, setVetVisitDate] = useState(() => localDayKey(new Date()));
   const [vetFeedback, setVetFeedback] = useState('');
   const [treatmentGiven, setTreatmentGiven] = useState('');
   const [vetNotes, setVetNotes] = useState('');
@@ -3269,13 +3350,14 @@ function AlertsHistoryScreen({ navigation, route }) {
   return (
     <View style={{ flex: 1, backgroundColor: T.color.gray100 }}>
       <View style={ah.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7} style={ah.backBtn}>
-          <MaterialCommunityIcons name="chevron-left" size={28} color={T.color.teal} />
-        </TouchableOpacity>
         <View>
           <Text style={ah.title}>Alerts</Text>
           <Text style={ah.subtitle}>Active & past alerts for {dogName || 'your dog'}</Text>
         </View>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color={T.color.teal} />
+          <Text style={ah.brand}>Know Better</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={ah.tabBar} contentContainerStyle={ah.tabBarContent}>
@@ -3458,6 +3540,15 @@ function AddDogScreen({ navigation }) {
       style={{ flex: 1, backgroundColor: T.color.offWhite }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      <View style={addDog.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color="#0F6E56" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={addDog.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView
         contentContainerStyle={addDog.content}
         keyboardShouldPersistTaps="handled"
@@ -3847,6 +3938,33 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleNotificationNav = (data) => {
+      if (!data) return;
+      if (data.type === 'morning_nudge') {
+        navigationRef.navigate('CheckIn');
+      } else if (data.type === 'escalation_reminder') {
+        navigationRef.navigate('AlertsHistory', { initialTab: 'active' });
+      } else if (data.type === 'vet_followup') {
+        navigationRef.navigate('AlertsHistory', { initialTab: 'acknowledged' });
+      } else if (data.type === 'alert' || data.alertLevel) {
+        navigationRef.navigate('AlertsHistory', { initialTab: 'active' });
+      }
+    };
+
+    // App running or backgrounded — fires when user taps notification
+    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+      handleNotificationNav(response.notification.request.content.data);
+    });
+
+    // Cold start — app opened by tapping notification
+    Notifications.getLastNotificationResponseAsync().then(response => {
+      if (response) handleNotificationNav(response.notification.request.content.data);
+    });
+
+    return () => sub.remove();
+  }, []);
+
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{
@@ -3868,22 +3986,11 @@ function App() {
         <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
         <Stack.Screen name="DogSelection" component={DogSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
-        <Stack.Screen
-          name="ReportHistory"
-          component={ReportHistoryScreen}
-          options={({ navigation }) => ({
-            headerTitle: 'Report History',
-            headerLeft: () => (
-              <TouchableOpacity onPress={() => navigation.goBack()}>
-                <MaterialCommunityIcons name="arrow-left" size={24} color="#0F6E56" />
-              </TouchableOpacity>
-            ),
-          })}
-        />
-        <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerTitle: 'Check-in History' }} />
+        <Stack.Screen name="Report" component={ReportScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AlertsHistory" component={AlertsHistoryScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="AddDog" component={AddDogScreen} options={{ headerTitle: 'Add Dog' }} />
+        <Stack.Screen name="AddDog" component={AddDogScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Terms" component={TermsScreen} options={{ headerShown: false }} />
@@ -4997,13 +5104,6 @@ const checkIn = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
-  rateCounter: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
   rateLimitMsg: {
     fontSize: 14,
     color: '#9CA3AF',
@@ -5274,6 +5374,26 @@ const report_ = StyleSheet.create({
     paddingBottom: 48,
     gap: 24,
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: '#FAFAF9',
+  },
+  periodTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
@@ -5487,6 +5607,21 @@ const reportHistory = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 48,
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: '#FAFAF9',
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   title: {
     fontSize: 18,
     fontWeight: '600',
@@ -5525,6 +5660,21 @@ const reportHistory = StyleSheet.create({
 });
 
 const ciHistory = StyleSheet.create({
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: T.color.offWhite,
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   content: {
     paddingHorizontal: 16,
     paddingTop: T.space.sm,
@@ -5637,6 +5787,7 @@ const ah = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 56 : 40,
     paddingHorizontal: T.space.sm,
     paddingBottom: T.space.sm,
@@ -5644,7 +5795,12 @@ const ah = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: T.color.gray300,
   },
-  backBtn: { marginRight: 12 },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: T.color.teal,
+    letterSpacing: 0.3,
+  },
   title: { fontSize: 18, fontWeight: '600', color: T.color.charcoal },
   subtitle: { fontSize: 12, fontWeight: '500', color: T.color.gray600, marginTop: 2 },
   tabBar: {
@@ -5740,6 +5896,21 @@ const ah = StyleSheet.create({
 });
 
 const addDog = StyleSheet.create({
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: T.color.offWhite,
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   content: {
     padding: T.space.sm,
     paddingTop: T.space.md,

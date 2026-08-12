@@ -4,9 +4,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 export default function HelpScreen({ navigation }) {
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.back} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-        <MaterialCommunityIcons name="chevron-left" size={22} color="#0F6E56" />
-        <Text style={styles.backText}>Back</Text>
+      <TouchableOpacity style={styles.back} onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7}>
+        <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+        <Text style={styles.backText}>Know Better</Text>
       </TouchableOpacity>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -232,12 +232,15 @@ const styles = StyleSheet.create({
   back: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-end',
     marginBottom: 24,
   },
   backText: {
-    fontSize: 15,
+    fontSize: 13,
     color: '#0F6E56',
     fontWeight: '600',
+    letterSpacing: 0.3,
   },
   content: {
     paddingBottom: 48,
