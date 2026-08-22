@@ -70,3 +70,22 @@ create policy "Authenticated users can upload to checkins"
 create policy "Authenticated users can read checkins"
   on storage.objects for select
   using (bucket_id = 'checkins' and auth.role() = 'authenticated');
+
+-- 8. analytics_events table — lightweight product analytics
+create table if not exists public.analytics_events (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid references auth.users(id) on delete set null,
+  event_name  text not null,
+  event_data  jsonb not null default '{}',
+  created_at  timestamptz not null default now()
+);
+
+alter table public.analytics_events enable row level security;
+
+create policy "Users can insert their own analytics events"
+  on public.analytics_events for insert
+  with check (user_id = auth.uid());
+
+create policy "Users can select their own analytics events"
+  on public.analytics_events for select
+  using (user_id = auth.uid());

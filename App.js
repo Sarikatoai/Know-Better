@@ -1,5 +1,7 @@
+import * as Sentry from '@sentry/react-native';
+import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
-import { sendPushNotification, setupPushNotifications } from './lib/notifications';
+import { setupPushNotifications } from './lib/notifications';
 import BurgerMenu from './components/BurgerMenu';
 import DogSelectionScreen from './screens/DogSelectionScreen';
 import HelpScreen from './screens/HelpScreen';
@@ -12,6 +14,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -20,6 +23,7 @@ import {
   Animated,
   Dimensions,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -31,6 +35,59 @@ import {
   View,
 } from 'react-native';
 
+
+// ─── Sentry — crash reporting, initialize before all other code ──────────────
+try {
+  Sentry.init({
+    dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+    environment: 'beta',
+    enableAutoSessionTracking: true,
+    debug: __DEV__,
+  });
+} catch (e) {
+  console.log('[Sentry] init failed:', e?.message);
+}
+
+// Langfuse browser build references localStorage, which doesn't exist in React Native
+if (typeof localStorage === 'undefined') {
+  global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+}
+
+// ─── Langfuse — LLM observability ────────────────────────────────────────────
+let langfuse;
+try {
+  langfuse = new Langfuse({
+    publicKey: process.env.EXPO_PUBLIC_LANGFUSE_PUBLIC_KEY,
+    secretKey: process.env.EXPO_PUBLIC_LANGFUSE_SECRET_KEY,
+    baseUrl: process.env.EXPO_PUBLIC_LANGFUSE_HOST || 'https://us.cloud.langfuse.com',
+    flushAt: 1,
+    flushInterval: 10000,
+  });
+} catch (e) {
+  console.log('[Langfuse] init failed:', e?.message);
+  langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ generation: () => ({ end: () => {} }), end: () => {} }) };
+}
+
+// ─── Analytics event logger ──────────────────────────────────────────────────
+const logAnalyticsEvent = async (userId, eventName, eventData = {}) => {
+  try {
+    await supabase.from('analytics_events').insert({
+      user_id: userId,
+      event_name: eventName,
+      event_data: eventData,
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.log('[Analytics] logEvent error:', eventName, err);
+  }
+};
+
+const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(reader.result.split(',')[1]);
+  reader.onerror = reject;
+  reader.readAsDataURL(blob);
+});
 
 const Stack = createNativeStackNavigator();
 
@@ -131,12 +188,16 @@ function WelcomeVideo() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [hasFinished, setHasFinished] = useState(false);
 
   const handlePress = async () => {
     if (!videoRef.current || !isLoaded) return;
     try {
       if (isPlaying) {
         await videoRef.current.pauseAsync();
+      } else if (hasFinished) {
+        setHasFinished(false);
+        await videoRef.current.replayAsync();
       } else {
         await videoRef.current.playAsync();
       }
@@ -159,7 +220,10 @@ function WelcomeVideo() {
         onLoad={() => setIsLoaded(true)}
         onPlaybackStatusUpdate={(status) => {
           if (status.isLoaded) setIsPlaying(status.isPlaying);
-          if (status.didJustFinish) setIsPlaying(false);
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+            setHasFinished(true);
+          }
         }}
         onError={() => setHasError(true)}
       />
@@ -218,9 +282,6 @@ function WelcomeScreen({ navigation }) {
         <View style={welcome.copy}>
           <Text style={welcome.title}>Welcome to Know Better</Text>
           <Text style={welcome.subtitle}>I would love to get to know your dog.</Text>
-          <Text style={welcome.tagline}>
-            Daily check-ins help you notice patterns — good days and changing patterns both matter.
-          </Text>
         </View>
 
         {/* Video */}
@@ -847,9 +908,21 @@ function CongratulationsScreen({ navigation, route }) {
 
 const DAILY_CHECKIN_LIMIT = 10;
 
+const localDayKey = (dateInput) => {
+  const d = new Date(dateInput);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const getCheckInTypeByTime = () => {
   const hour = new Date().getHours();
   return (hour >= 5 && hour < 17) ? 'morning' : 'evening';
+};
+
+const getTimeOfDay = () => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 18) return 'afternoon';
+  return 'evening';
 };
 
 const ALERT_BANNER_CONFIG = {
@@ -872,7 +945,7 @@ function CheckInScreen({ navigation, route }) {
   const [activeAlertId, setActiveAlertId] = useState(null);
   const [alertAcknowledged, setAlertAcknowledged] = useState(false);
   const [showVetUpdateModal, setShowVetUpdateModal] = useState(false);
-  const [vetVisitDate, setVetVisitDate] = useState('');
+  const [vetVisitDate, setVetVisitDate] = useState(() => localDayKey(new Date()));
   const [vetFeedback, setVetFeedback] = useState('');
   const [treatmentGiven, setTreatmentGiven] = useState('');
   const [vetNotes, setVetNotes] = useState('');
@@ -887,6 +960,7 @@ function CheckInScreen({ navigation, route }) {
   const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
+  const scrollRef = useRef(null);
   const recordingRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const mediaChunksRef = useRef([]);
@@ -898,11 +972,6 @@ function CheckInScreen({ navigation, route }) {
 
   useEffect(() => {
     const init = async () => {
-      const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-      console.log('[ENV] EXPO_PUBLIC_OPENAI_API_KEY first 10 chars:', key ? key.slice(0, 10) : 'UNDEFINED — restart Metro after .env changes');
-      const anthropicKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
-      console.log('[ENV] EXPO_PUBLIC_ANTHROPIC_API_KEY first 10 chars:', anthropicKey ? anthropicKey.slice(0, 10) : 'UNDEFINED — restart Metro after .env changes');
-
       if (Platform.OS !== 'web') {
         const { status } = await Audio.requestPermissionsAsync();
         if (status !== 'granted') setPermissionDenied(true);
@@ -912,7 +981,9 @@ function CheckInScreen({ navigation, route }) {
       if (!session) return;
       const userId = session.user.id;
       userIdRef.current = userId;
-      fetchDailyCount(userId);
+      await supabase.from('users').update({ timezone_offset_minutes: -new Date().getTimezoneOffset() }).eq('user_id', userId);
+      Sentry.setUser({ id: userId });
+      logAnalyticsEvent(userId, 'app_open', {});
 
       if (Platform.OS !== 'web') {
         const { token } = await setupPushNotifications();
@@ -934,6 +1005,7 @@ function CheckInScreen({ navigation, route }) {
       const dogId = dogResult.data?.dog_id ?? null;
       dogIdRef.current = dogId;
       setCurrentDogId(dogId);
+      fetchDailyCount(dogId);
 
       const { data: familyData } = await supabase
         .from('family_members')
@@ -1012,6 +1084,23 @@ function CheckInScreen({ navigation, route }) {
   }, [route.params?.dogId]);
 
   useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      setTranscription('');
+      setClaudeResponse('');
+      setTypedText('');
+      setInputExpanded(false);
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', () => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     if (recordingState === 'recording') {
       Animated.loop(
         Animated.sequence([
@@ -1033,16 +1122,14 @@ function CheckInScreen({ navigation, route }) {
     }
   }, [recordingState]);
 
-  const fetchDailyCount = async (userId) => {
+  const fetchDailyCount = async (dogId) => {
+    if (!dogId) { setDailyCountLoaded(true); return 0; }
     const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const { data: dogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
-    const dogIds = (dogs ?? []).map(d => d.dog_id);
-    if (dogIds.length === 0) { setDailyCountLoaded(true); return 0; }
+    todayStart.setHours(0, 0, 0, 0);
     const { count } = await supabase
       .from('check_ins')
       .select('check_in_id', { count: 'exact', head: true })
-      .in('dog_id', dogIds)
+      .eq('dog_id', dogId)
       .gte('created_at', todayStart.toISOString());
     const c = count ?? 0;
     setDailyCount(c);
@@ -1062,13 +1149,11 @@ function CheckInScreen({ navigation, route }) {
 
     // Hard rate limit check (server-side guard)
     const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const { data: userDogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
-    const allDogIds = (userDogs ?? []).map(d => d.dog_id);
+    todayStart.setHours(0, 0, 0, 0);
     const { count: todayCount } = await supabase
       .from('check_ins')
       .select('check_in_id', { count: 'exact', head: true })
-      .in('dog_id', allDogIds)
+      .eq('dog_id', dogId)
       .gte('created_at', todayStart.toISOString());
     if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
       console.log('[RateLimit] daily limit reached, blocking save');
@@ -1158,31 +1243,37 @@ function CheckInScreen({ navigation, route }) {
   };
 
   const extractHealthEvent = async (transcriptionText, checkInId, dogId, familyMemberId) => {
+    const generation = langfuse.generation({
+      name: 'Claude - Health Event Extraction',
+      model: 'claude-sonnet-4-5',
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogId, check_in_id: checkInId },
+      input: transcriptionText,
+      startTime: new Date(),
+    });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 256,
           system: `You are analyzing a dog owner's check-in that mentions a significant medical event. Extract the following and return as JSON only:
 { "event_title": "brief title of the event", "event_type": "critical, medium, or low", "event_description": "what happened in plain language", "treatment_active": true }
 event_type guide: critical = surgery, hospitalization, serious diagnosis. medium = vet visit, new medication, minor procedure. low = routine checkup, vaccination.`,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       const rawText = data.content?.[0]?.text ?? '';
       const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       const extracted = JSON.parse(cleaned);
+      generation.end({
+        output: extracted,
+        usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+        endTime: new Date(),
+      });
       console.log('[HealthEvent] extracted:', JSON.stringify(extracted));
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDayKey(new Date());
       const { error } = await supabase.from('health_events').insert({
         dog_id: dogId,
         family_member_id: familyMemberId,
@@ -1196,6 +1287,8 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       if (error) console.log('[HealthEvent] insert error:', error);
       else console.log('[HealthEvent] saved:', extracted.event_title);
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[HealthEvent] error:', err);
     }
   };
@@ -1222,7 +1315,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const dayMap = {};
       for (const row of recent) {
-        const day = row.created_at.split('T')[0];
+        const day = localDayKey(row.created_at);
         if (!dayMap[day]) dayMap[day] = [];
         dayMap[day].push(row);
       }
@@ -1232,7 +1325,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning');
       if (isDayConcerning(dayMap[days[0]]) || isDayConcerning(dayMap[days[1]])) return;
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDayKey(new Date());
       const { error } = await supabase
         .from('health_events')
         .update({ treatment_active: false, event_end_date: today })
@@ -1285,7 +1378,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       // Group check-ins by calendar day
       const checkInsByDay = {};
       for (const row of data) {
-        const day = row.created_at.split('T')[0];
+        const day = localDayKey(row.created_at);
         if (!checkInsByDay[day]) checkInsByDay[day] = [];
         checkInsByDay[day].push(row);
       }
@@ -1325,13 +1418,13 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const signalDayMap = {};
       for (const row of (signalRows ?? [])) {
-        const day = row.created_at.split('T')[0];
+        const day = localDayKey(row.created_at);
         if (!signalDayMap[day]) signalDayMap[day] = [];
         signalDayMap[day].push(row);
       }
       let consecutive_combination_days = 0;
       for (let i = 0; i < 7; i++) {
-        const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const day = localDayKey(new Date(Date.now() - i * 24 * 60 * 60 * 1000));
         const dayRows = signalDayMap[day] ?? [];
         const dayLowCount = SIGNAL_DIMS.filter(dim => {
           const vals = dayRows.map(r => r[dim]).filter(v => v != null && v !== 'null');
@@ -1395,6 +1488,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       }
 
       // Consecutive concerning days rule (relaxed thresholds during active treatment)
+      // baseline_active requires total_days >= 3, so Level 1/2 only need >= 3 days
       const ccd = b.consecutive_concerning_days ?? 0;
       const totalDays = b.total_days ?? 0;
       let alertLevel = null;
@@ -1402,15 +1496,14 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         console.log('[HealthEvent] treatment context active — using relaxed thresholds');
         if (ccd >= 5) alertLevel = 3;
         else if (ccd >= 3) alertLevel = 2;
-        else if (ccd >= 4) alertLevel = 1;
+        else if (ccd >= 2) alertLevel = 1;
       } else {
-        if      (ccd >= 5 && totalDays >= 6) alertLevel = 3;
-        else if (ccd >= 3 && totalDays >= 5) alertLevel = 2;
-        else if (ccd >= 2 && totalDays >= 5) alertLevel = 1;
+        if      (ccd >= 5 && totalDays >= 5) alertLevel = 3;
+        else if (ccd >= 3 && totalDays >= 3) alertLevel = 2;
+        else if (ccd >= 2 && totalDays >= 3) alertLevel = 1;
 
         if (alertLevel === null && ccd >= 2) {
-          const needed = ccd >= 5 ? 10 : ccd >= 3 ? 7 : 5;
-          console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays}/${needed} days)`);
+          console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays} days)`);
         }
       }
       console.log('[Deviation] consecutive_concerning_days:', ccd, '| total_days:', totalDays, '→ alertLevel:', alertLevel);
@@ -1419,9 +1512,9 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       const ccfd = b.consecutive_combination_days ?? 0;
       const lowCount = b.low_signal_count_today ?? 0;
       let combinationAlertLevel = null;
-      if      (lowCount >= 3 && totalDays >= 7) combinationAlertLevel = 2;
-      else if (ccfd >= 3   && totalDays >= 7)  combinationAlertLevel = 2;
-      else if (ccfd >= 2   && totalDays >= 5)  combinationAlertLevel = 1;
+      if      (lowCount >= 3 && totalDays >= 3) combinationAlertLevel = 2;
+      else if (ccfd >= 3   && totalDays >= 5)  combinationAlertLevel = 2;
+      else if (ccfd >= 2   && totalDays >= 3)  combinationAlertLevel = 1;
       console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '| total_days:', totalDays, '→ combinationAlertLevel:', combinationAlertLevel);
 
       // Final: highest level from either rule
@@ -1445,7 +1538,11 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
           alert_status: 'active',
         }).select('alert_id').single();
         if (alertError) console.log('[Deviation] alert insert error:', alertError);
-        else { console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason); savedAlertId = alertData?.alert_id ?? null; }
+        else {
+          console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason);
+          savedAlertId = alertData?.alert_id ?? null;
+          logAnalyticsEvent(userIdRef.current, 'alert_fired', { dog_id: dogId, alert_level: finalLevel, trigger_reason: alert_trigger_reason });
+        }
       }
 
       const consecutiveDays = (alertLevel ?? 0) >= (combinationAlertLevel ?? 0) ? ccd : ccfd;
@@ -1475,40 +1572,69 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
     } else {
       systemPrompt = 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
     }
+    const traceLabel = alertLevel ? `Claude - Alert Level ${alertLevel}` : 'Claude - Check-in Response';
+    const trace = langfuse.trace({
+      name: traceLabel,
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogIdRef.current, check_in_id: checkInId, classification, alert_level: alertLevel },
+    });
+    const generation = trace.generation({
+      name: traceLabel,
+      model: 'claude-sonnet-4-5',
+      input: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcriptionText }],
+      startTime: new Date(),
+    });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 256,
           system: systemPrompt,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       console.log('[Claude] result:', JSON.stringify(data));
       if (data.content?.[0]?.text) {
         const responseText = data.content[0].text;
+        generation.end({
+          output: responseText,
+          usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+          endTime: new Date(),
+        });
         setClaudeResponse(responseText);
         setActiveAlertLevel(alertLevel);
         setActiveAlertId(alertId);
         saveResponse(checkInId, responseText);
-        if (alertLevel === 2 || alertLevel === 3) {
-          setTimeout(() => {
-            sendPushNotification(userIdRef.current, name, `level_${alertLevel}`, responseText);
-          }, 60000);
+        if ((alertLevel === 2 || alertLevel === 3) && alertId) {
+          const now = new Date();
+          supabase.from('scheduled_notifications').insert([
+            {
+              user_id: userIdRef.current,
+              dog_id: dogIdRef.current,
+              alert_id: alertId,
+              alert_level: alertLevel,
+              notification_type: 'escalation_reminder',
+              scheduled_for: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
+            },
+            {
+              user_id: userIdRef.current,
+              dog_id: dogIdRef.current,
+              alert_id: alertId,
+              alert_level: alertLevel,
+              notification_type: 'vet_followup',
+              scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+            },
+          ]);
         }
       }
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[Claude] error:', err);
     } finally {
       setIsClaudeLoading(false);
+      try { langfuse.flush(); } catch (e) {}
     }
   };
 
@@ -1526,9 +1652,10 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
   const acknowledgeAlert = async () => {
     if (!activeAlertId) return;
     await supabase.from('alerts').update({
-      alert_status: 'acknowledged',
+      alert_status: activeAlertLevel === 1 ? 'resolved' : 'acknowledged',
       acknowledged_at: new Date().toISOString(),
     }).eq('alert_id', activeAlertId);
+    logAnalyticsEvent(userIdRef.current, 'alert_acknowledged', { dog_id: currentDogId, alert_level: activeAlertLevel, alert_id: activeAlertId });
     if (activeAlertLevel === 1) {
       setActiveAlertLevel(null);
       setActiveAlertId(null);
@@ -1556,6 +1683,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         vet_update_logged_at: new Date().toISOString(),
       }).eq('alert_id', activeAlertId);
       await resetBaseline(currentDogId);
+      logAnalyticsEvent(userIdRef.current, 'vet_update_logged', { dog_id: currentDogId, alert_id: activeAlertId });
       setShowVetUpdateModal(false);
       setActiveAlertLevel(null);
       setActiveAlertId(null);
@@ -1574,16 +1702,17 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
   };
 
   const extractSignals = async (transcriptionText, checkInId, dogId) => {
+    const generation = langfuse.generation({
+      name: 'Claude - Signal Extraction',
+      model: 'claude-sonnet-4-5',
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogId, check_in_id: checkInId },
+      input: transcriptionText,
+      startTime: new Date(),
+    });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 256,
           system: `You are analyzing a dog owner's check-in about their dog. Extract the state of each behavioral dimension mentioned. Return a JSON object only — no other text. Use these exact keys and values:
@@ -1595,12 +1724,17 @@ demeanor: normal, low, or null
 vomiting: none, once, multiple, or null
 Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", "water_intake": "null", "demeanor": "low", "vomiting": "none"}`,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       const rawText = data.content?.[0]?.text ?? '';
       const cleaned = rawText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       const signals = JSON.parse(cleaned);
+      generation.end({
+        output: signals,
+        usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+        endTime: new Date(),
+      });
       console.log('[Signals] extracted:', JSON.stringify(signals));
 
       const { error } = await supabase.from('signals').insert({
@@ -1612,21 +1746,24 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
       if (error) console.log('[Signals] insert error:', error);
       else console.log('[Signals] saved');
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[Signals] error:', err);
     }
   };
 
   const classifyCheckIn = async (transcriptionText) => {
+    const generation = langfuse.generation({
+      name: 'Claude - Classification',
+      model: 'claude-sonnet-4-5',
+      userId: userIdRef.current ?? undefined,
+      metadata: { dog_id: dogIdRef.current },
+      input: transcriptionText,
+      startTime: new Date(),
+    });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
           model: 'claude-sonnet-4-5',
           max_tokens: 16,
           system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify the text into exactly one of these four categories:
@@ -1636,15 +1773,23 @@ HEALTH_EVENT — the owner mentions a significant medical event. Examples: vet v
 IRRELEVANT — the text contains no useful information about the dog's health or daily routine. Examples: accidental recording, conversation not about the dog, nonsensical content.
 Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           messages: [{ role: 'user', content: transcriptionText }],
-        }),
+        },
       });
-      const data = await response.json();
+      if (claudeError) throw claudeError;
       const raw = data.content?.[0]?.text?.trim().toUpperCase();
       const valid = ['NORMAL', 'CONCERNING', 'HEALTH_EVENT', 'IRRELEVANT'];
       const classification = valid.includes(raw) ? raw.toLowerCase() : 'irrelevant';
+      generation.end({
+        output: classification,
+        usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+        endTime: new Date(),
+      });
       console.log('[Classify] result:', classification);
+      try { langfuse.flush(); } catch (e) {}
       return classification;
     } catch (err) {
+      generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
+      Sentry.captureException(err);
       console.log('[Classify] error:', err);
       return 'irrelevant';
     }
@@ -1734,25 +1879,18 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         mediaRecorderRef.current = null;
         mediaChunksRef.current = [];
 
-        const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'mp4' : 'webm';
-        const file = new File([blob], `recording.${ext}`, { type: blob.type });
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('model', 'whisper-1');
-        formData.append('language', 'en');
-
-        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}` },
-          body: formData,
+        const audioBase64 = await blobToBase64(blob);
+        const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
+          body: { audio_base64: audioBase64, mime_type: blob.type, language: 'en' },
         });
-        const result = await response.json();
+        if (transcribeError) throw transcribeError;
         console.log('[Whisper] result:', JSON.stringify(result));
         if (result.text) {
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const treatmentActive = await getActiveTreatment(dogIdRef.current);
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification, treatmentActive);
+          if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {
             extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
           }
@@ -1767,6 +1905,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
         }
       } catch (err) {
+        Sentry.captureException(err);
         console.log('[Whisper] error:', err);
       } finally {
         setRecordingState('idle');
@@ -1787,29 +1926,19 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         console.log('[Audio] blob MIME type: audio/m4a (native)');
         console.log('[Audio] recording duration (seconds):', durationSecs);
 
-        // Fetch blob for Supabase storage upload (runs in parallel with Whisper)
-        const blobPromise = fetch(uri).then(r => r.blob());
-
-        const formData = new FormData();
-        formData.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' });
-        formData.append('model', 'whisper-1');
-        formData.append('language', 'en');
-
-        const [whisperResponse, nativeBlob] = await Promise.all([
-          fetch('https://api.openai.com/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}` },
-            body: formData,
-          }),
-          blobPromise,
-        ]);
-        const result = await whisperResponse.json();
+        const nativeBlob = await fetch(uri).then(r => r.blob());
+        const audioBase64 = await blobToBase64(nativeBlob);
+        const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
+          body: { audio_base64: audioBase64, mime_type: 'audio/m4a', language: 'en' },
+        });
+        if (transcribeError) throw transcribeError;
         console.log('[Whisper] result:', JSON.stringify(result));
         if (result.text) {
           setTranscription(result.text);
           const classification = await classifyCheckIn(result.text);
           const treatmentActive = await getActiveTreatment(dogIdRef.current);
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification, treatmentActive);
+          if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {
             extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
           }
@@ -1824,6 +1953,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
         }
       } catch (err) {
+        Sentry.captureException(err);
         console.log('[Whisper] error:', err);
       } finally {
         setRecordingState('idle');
@@ -1851,13 +1981,11 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       let checkInId = null;
       if (userId && dogId && familyMemberId) {
         const todayStart = new Date();
-        todayStart.setUTCHours(0, 0, 0, 0);
-        const { data: userDogs } = await supabase.from('dogs').select('dog_id').eq('owner_id', userId);
-        const allDogIds = (userDogs ?? []).map(d => d.dog_id);
+        todayStart.setHours(0, 0, 0, 0);
         const { count: todayCount } = await supabase
           .from('check_ins')
           .select('check_in_id', { count: 'exact', head: true })
-          .in('dog_id', allDogIds)
+          .eq('dog_id', dogId)
           .gte('created_at', todayStart.toISOString());
         if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
           setDailyCount(todayCount ?? 0);
@@ -1878,6 +2006,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           if (!checkInError) {
             checkInId = checkInData.check_in_id;
             setDailyCount(c => c + 1);
+            logAnalyticsEvent(userId, 'check_in_created', { dog_id: dogId, check_in_type: 'text', classification });
           } else {
             console.log('[TextCheckIn] insert error:', checkInError);
           }
@@ -1898,6 +2027,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogId, checkInId, treatmentActive);
       callClaude(text, checkInId, classification, alertLevel, consecutiveDays, alertId);
     } catch (err) {
+      Sentry.captureException(err);
       console.log('[TextCheckIn] error:', err);
     } finally {
       setRecordingState('idle');
@@ -1916,10 +2046,10 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
           <Text style={checkIn.brand}>Know Better</Text>
-        </View>
+        </TouchableOpacity>
       </View>
 
       {dogName ? (
@@ -1940,14 +2070,16 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         </TouchableOpacity>
       ) : null}
 
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <ScrollView
+        ref={scrollRef}
         style={checkIn.scrollArea}
-        contentContainerStyle={checkIn.scrollContent}
+        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: 21 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={checkIn.greeting}>Good morning, {userName || 'there'}.</Text>
-        <Text style={checkIn.question}>How did {dogName || 'your dog'}'s morning go?</Text>
+        <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName || 'there'}.</Text>
+        <Text style={checkIn.question}>How did {dogName || 'your dog'}'s {getTimeOfDay()} go?</Text>
 
         <>
             <View style={checkIn.modeToggle}>
@@ -1994,22 +2126,21 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                     </Animated.View>
                   </TouchableOpacity>
 
-                  <Text style={checkIn.listening}>
-                    {isAtLimit ? 'Daily limit reached' : isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
-                  </Text>
+                  {!isAtLimit && (
+                    <Text style={checkIn.listening}>
+                      {isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
+                    </Text>
+                  )}
 
                   {isAtLimit ? (
                     <Text style={checkIn.rateLimitMsg}>
-                      You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
+                      10 check-ins today, I'm all set. I'll see you tomorrow.
                     </Text>
                   ) : (
                     <>
-                      {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
-                        <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
-                      )}
                       {recordingState === 'idle' && !transcription && (
                         <Text style={checkIn.hint}>
-                          Tap the mic and tell me about {dogName || 'your dog'}'s morning
+                          Tap the mic and tell me about {dogName || 'your dog'}'s {getTimeOfDay()}
                         </Text>
                       )}
                     </>
@@ -2032,13 +2163,10 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 />
                 {isAtLimit ? (
                   <Text style={checkIn.rateLimitMsg}>
-                    You've used your {DAILY_CHECKIN_LIMIT} daily check-ins. I will see you tomorrow!
+                    10 check-ins today, I'm all set. I'll see you tomorrow.
                   </Text>
                 ) : (
                   <>
-                    {dailyCountLoaded && dailyCount > 0 && recordingState === 'idle' && !transcription && (
-                      <Text style={checkIn.rateCounter}>{dailyCount}/{DAILY_CHECKIN_LIMIT} check-ins used today</Text>
-                    )}
                     <TouchableOpacity
                       style={[checkIn.submitBtn, (!typedText.trim() || isProcessing || isAtLimit) && checkIn.submitBtnDisabled]}
                       onPress={handleTextSubmit}
@@ -2114,6 +2242,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             )}
           </>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <BurgerMenu
         isOpen={isMenuOpen}
@@ -2307,18 +2436,28 @@ const describeDayPlainly = (day) => {
   return parts.join(' ');
 };
 
-const generateVetReport = async (dogId, periodDays = 30) => {
-  const periodStartDate = new Date(Date.now() - (periodDays - 1) * 24 * 60 * 60 * 1000);
-  const period_start = periodStartDate.toISOString().split('T')[0];
-  const period_end = new Date().toISOString().split('T')[0];
-  const sinceIso = `${period_start}T00:00:00.000Z`;
-  const dayKey = (iso) => iso.split('T')[0];
+const generateVetReport = async (dogId, year, month) => {
+  const periodStartDate = new Date(year, month - 1, 1);
+  periodStartDate.setHours(0, 0, 0, 0);
+
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === (now.getMonth() + 1);
+  const periodEndDate = isCurrentMonth
+    ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+    : new Date(year, month, 0, 23, 59, 59, 999);
+
+  const period_start = localDayKey(periodStartDate);
+  const period_end = localDayKey(periodEndDate);
+  const sinceIso = periodStartDate.toISOString();
+  const untilIso = periodEndDate.toISOString();
+  const periodDays = Math.round((periodEndDate.getTime() - periodStartDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  const dayKey = (iso) => localDayKey(iso);
 
   const [checkInsRes, signalsRes, alertsRes, healthEventsRes] = await Promise.all([
-    supabase.from('check_ins').select('check_in_id, input_classification, check_in_text, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
-    supabase.from('signals').select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at').eq('dog_id', dogId).gte('created_at', sinceIso),
-    supabase.from('alerts').select('alert_level, alert_trigger_reason, alert_status, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).order('created_at', { ascending: true }),
-    supabase.from('health_events').select('event_title, event_type, event_date').eq('dog_id', dogId).gte('event_date', period_start).order('event_date', { ascending: true }),
+    supabase.from('check_ins').select('check_in_id, input_classification, check_in_text, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).lte('created_at', untilIso).order('created_at', { ascending: true }),
+    supabase.from('signals').select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).lte('created_at', untilIso),
+    supabase.from('alerts').select('alert_level, alert_trigger_reason, alert_status, created_at').eq('dog_id', dogId).gte('created_at', sinceIso).lte('created_at', untilIso).order('created_at', { ascending: true }),
+    supabase.from('health_events').select('event_title, event_type, event_date').eq('dog_id', dogId).gte('event_date', period_start).lte('event_date', period_end).order('event_date', { ascending: true }),
   ]);
 
   const checkIns = checkInsRes.data ?? [];
@@ -2346,7 +2485,7 @@ const generateVetReport = async (dogId, periodDays = 30) => {
   let concerning_day_count = 0;
 
   for (let i = 0; i < periodDays; i++) {
-    const day = new Date(periodStartDate.getTime() + i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const day = localDayKey(new Date(periodStartDate.getTime() + i * 24 * 60 * 60 * 1000));
     const dayCheckIns = checkInsByDay[day] ?? [];
     const dayAlerts = alertsByDay[day] ?? [];
     const dayHealthEvents = healthEventsByDay[day] ?? [];
@@ -2418,11 +2557,11 @@ const generateVetReport = async (dogId, periodDays = 30) => {
 
   const { data: inserted, error } = await supabase
     .from('vet_reports')
-    .insert({ dog_id: dogId, period_start, period_end, overall_status, summary_data })
+    .upsert({ dog_id: dogId, period_start, period_end, overall_status, summary_data }, { onConflict: 'dog_id,period_start' })
     .select('report_id, dog_id, period_start, period_end, overall_status, summary_data, generated_at')
     .single();
   if (error) {
-    console.log('[VetReport] insert error:', error);
+    console.log('[VetReport] upsert error:', error);
     return { report_id: null, dog_id: dogId, period_start, period_end, overall_status, summary_data, generated_at: new Date().toISOString() };
   }
   console.log('[VetReport] generated and saved — overall_status:', overall_status);
@@ -2438,15 +2577,6 @@ function ReportScreen({ navigation, route }) {
   const [selectedDay, setSelectedDay] = useState(null);
   const [weekIndex, setWeekIndex] = useState(null);
 
-  useEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7} style={{ paddingRight: 16 }}>
-          <MaterialCommunityIcons name="chevron-left" size={28} color="#0F6E56" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2476,7 +2606,8 @@ function ReportScreen({ navigation, route }) {
           if (error) console.log('[Report] load error:', error);
           if (!cancelled) setReport(data ?? null);
         } else {
-          const generated = await generateVetReport(resolvedDogId, 30);
+          const now = new Date();
+          const generated = await generateVetReport(resolvedDogId, now.getFullYear(), now.getMonth() + 1);
           if (!cancelled) setReport(generated);
         }
         if (!cancelled) setIsLoading(false);
@@ -2503,6 +2634,13 @@ function ReportScreen({ navigation, route }) {
   }
 
   const { summary_data, overall_status: savedStatus } = report;
+  if (!summary_data?.alerts || !summary_data?.days) {
+    return (
+      <View style={report_.loadingContainer}>
+        <Text style={report_.loadingText}>This report couldn't be loaded.</Text>
+      </View>
+    );
+  }
   const hasActiveAlert = summary_data.alerts.some(a => a.status === 'active');
   const overall_status = (savedStatus === 'alert_fired' || savedStatus === 'patterns_noted' || savedStatus === 'mostly_normal') && !hasActiveAlert && summary_data.alerts.length > 0
     ? 'all_clear'
@@ -2517,8 +2655,19 @@ function ReportScreen({ navigation, route }) {
     : '';
   const goToPrevWeek = () => setWeekIndex(Math.max(0, activeWeekIndex - 1));
   const goToNextWeek = () => setWeekIndex(Math.min(weeks.length - 1, activeWeekIndex + 1));
+  const periodTitle = report.period_start
+    ? new Date(`${report.period_start}T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : '';
 
   return (
+    <View style={{ flex: 1, backgroundColor: '#FAFAF9' }}>
+      <View style={report_.topBar}>
+        {periodTitle ? <Text style={report_.periodTitle}>{periodTitle}</Text> : <View />}
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={report_.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
     <ScrollView style={report_.container} contentContainerStyle={report_.content}>
 
       {/* 1 — Status Hero */}
@@ -2643,6 +2792,7 @@ function ReportScreen({ navigation, route }) {
       </TouchableOpacity>
 
     </ScrollView>
+    </View>
   );
 }
 
@@ -2651,16 +2801,6 @@ function ReportHistoryScreen({ navigation, route }) {
   const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  useEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingLeft: 8 }}>
-          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
 
   useEffect(() => {
     const load = async () => {
@@ -2673,11 +2813,49 @@ function ReportHistoryScreen({ navigation, route }) {
         }
       }
       if (!dogId) { setIsLoading(false); return; }
+
+      // Backfill any past months that have check-ins but no saved report
+      const { data: earliest } = await supabase
+        .from('check_ins')
+        .select('created_at')
+        .eq('dog_id', dogId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (earliest) {
+        const { data: existing } = await supabase
+          .from('vet_reports')
+          .select('period_start')
+          .eq('dog_id', dogId);
+        const existingMonths = new Set((existing ?? []).map(r => r.period_start.substring(0, 7)));
+
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        const startDate = new Date(earliest.created_at);
+        let y = startDate.getFullYear();
+        let m = startDate.getMonth() + 1;
+
+        while (y < currentYear || (y === currentYear && m < currentMonth)) {
+          const key = `${y}-${String(m).padStart(2, '0')}`;
+          if (!existingMonths.has(key)) {
+            await generateVetReport(dogId, y, m);
+          }
+          m++;
+          if (m > 12) { m = 1; y++; }
+        }
+      }
+
+      // Only show completed past months (exclude current month)
+      const now = new Date();
+      const currentMonthStart = localDayKey(new Date(now.getFullYear(), now.getMonth(), 1));
       const { data, error } = await supabase
         .from('vet_reports')
         .select('report_id, period_start, period_end, overall_status, generated_at')
         .eq('dog_id', dogId)
-        .order('generated_at', { ascending: false });
+        .lt('period_start', currentMonthStart)
+        .order('period_start', { ascending: false });
       if (error) console.log('[ReportHistory] query error:', error);
       setReports(data ?? []);
       setIsLoading(false);
@@ -2686,7 +2864,16 @@ function ReportHistoryScreen({ navigation, route }) {
   }, []);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#FAFAF9' }}>
+      <View style={reportHistory.topBar}>
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={reportHistory.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
     <ScrollView style={reportHistory.container} contentContainerStyle={reportHistory.content}>
       <Text style={reportHistory.title}>Report history</Text>
       {isLoading && <Text style={reportHistory.empty}>Loading…</Text>}
@@ -2750,16 +2937,6 @@ function CheckInHistoryScreen({ navigation, route }) {
   const dogIdsRef = useRef([]);
 
   useEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7} style={{ paddingRight: 8 }}>
-          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
-
-  useEffect(() => {
     const init = async () => {
       let dogIds = [];
       if (paramDogId) {
@@ -2809,6 +2986,15 @@ function CheckInHistoryScreen({ navigation, route }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.color.offWhite }}>
+      <View style={ciHistory.topBar}>
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={ciHistory.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView contentContainerStyle={ciHistory.content}>
         {isLoading && <Text style={ciHistory.empty}>Loading…</Text>}
         {!isLoading && items.length === 0 && <Text style={ciHistory.empty}>No check-ins yet.</Text>}
@@ -2908,19 +3094,23 @@ const LEVEL_BADGE = {
 };
 
 function AlertsHistoryScreen({ navigation, route }) {
-  const { dogId: paramDogId, dogName: paramDogName } = route.params ?? {};
+  const { dogId: paramDogId, dogName: paramDogName, initialTab } = route.params ?? {};
   const [dogId, setDogId] = useState(paramDogId ?? null);
   const [dogName, setDogName] = useState(paramDogName ?? '');
-  const [activeTab, setActiveTab] = useState('active');
+  const [activeTab, setActiveTab] = useState(initialTab ?? 'active');
   const [alerts, setAlerts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (route.params?.initialTab) setActiveTab(route.params.initialTab);
+  }, [route.params?.initialTab]);
 
   const [showAckModal, setShowAckModal] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [isAcknowledging, setIsAcknowledging] = useState(false);
 
   const [showVetModal, setShowVetModal] = useState(false);
-  const [vetVisitDate, setVetVisitDate] = useState('');
+  const [vetVisitDate, setVetVisitDate] = useState(() => localDayKey(new Date()));
   const [vetFeedback, setVetFeedback] = useState('');
   const [treatmentGiven, setTreatmentGiven] = useState('');
   const [vetNotes, setVetNotes] = useState('');
@@ -2997,11 +3187,12 @@ function AlertsHistoryScreen({ navigation, route }) {
   const handleAcknowledge = async () => {
     if (!selectedAlert || !dogId) return;
     setIsAcknowledging(true);
+    const isLevel1 = (ALERT_LEVEL_NUM[selectedAlert.alert_level] ?? 1) === 1;
     await supabase.from('alerts').update({
-      alert_status: 'acknowledged',
+      alert_status: isLevel1 ? 'resolved' : 'acknowledged',
       acknowledged_at: new Date().toISOString(),
     }).eq('alert_id', selectedAlert.alert_id);
-    if ((ALERT_LEVEL_NUM[selectedAlert.alert_level] ?? 1) === 1) {
+    if (isLevel1) {
       await resetBaselineForDog(dogId);
     }
     setIsAcknowledging(false);
@@ -3159,13 +3350,14 @@ function AlertsHistoryScreen({ navigation, route }) {
   return (
     <View style={{ flex: 1, backgroundColor: T.color.gray100 }}>
       <View style={ah.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7} style={ah.backBtn}>
-          <MaterialCommunityIcons name="chevron-left" size={28} color={T.color.teal} />
-        </TouchableOpacity>
         <View>
           <Text style={ah.title}>Alerts</Text>
           <Text style={ah.subtitle}>Active & past alerts for {dogName || 'your dog'}</Text>
         </View>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color={T.color.teal} />
+          <Text style={ah.brand}>Know Better</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={ah.tabBar} contentContainerStyle={ah.tabBarContent}>
@@ -3348,6 +3540,15 @@ function AddDogScreen({ navigation }) {
       style={{ flex: 1, backgroundColor: T.color.offWhite }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      <View style={addDog.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color="#0F6E56" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
+          <Text style={addDog.brand}>Know Better</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView
         contentContainerStyle={addDog.content}
         keyboardShouldPersistTaps="handled"
@@ -3597,7 +3798,7 @@ const saveOnboardingData = async (session, stored) => {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function App() {
   const navigationRef = useNavigationContainerRef();
 
   useEffect(() => {
@@ -3718,6 +3919,7 @@ export default function App() {
               },
             }]);
 
+            logAnalyticsEvent(session.user.id, 'user_signup', { email: session.user.email });
             saveOnboardingData(session, stored).catch((err) => {
               console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
               Alert.alert(
@@ -3734,6 +3936,33 @@ export default function App() {
       linkSubscription.remove();
       authSubscription.unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    const handleNotificationNav = (data) => {
+      if (!data) return;
+      if (data.type === 'morning_nudge') {
+        navigationRef.navigate('CheckIn');
+      } else if (data.type === 'escalation_reminder') {
+        navigationRef.navigate('AlertsHistory', { initialTab: 'active' });
+      } else if (data.type === 'vet_followup') {
+        navigationRef.navigate('AlertsHistory', { initialTab: 'acknowledged' });
+      } else if (data.type === 'alert' || data.alertLevel) {
+        navigationRef.navigate('AlertsHistory', { initialTab: 'active' });
+      }
+    };
+
+    // App running or backgrounded — fires when user taps notification
+    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+      handleNotificationNav(response.notification.request.content.data);
+    });
+
+    // Cold start — app opened by tapping notification
+    Notifications.getLastNotificationResponseAsync().then(response => {
+      if (response) handleNotificationNav(response.notification.request.content.data);
+    });
+
+    return () => sub.remove();
   }, []);
 
   return (
@@ -3757,22 +3986,11 @@ export default function App() {
         <Stack.Screen name="Congratulations" component={CongratulationsScreen} options={{ headerShown: false }} />
         <Stack.Screen name="DogSelection" component={DogSelectionScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CheckIn" component={CheckInScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Report" component={ReportScreen} options={{ headerTitle: 'Vet Report' }} />
-        <Stack.Screen
-          name="ReportHistory"
-          component={ReportHistoryScreen}
-          options={({ navigation }) => ({
-            headerTitle: 'Report History',
-            headerLeft: () => (
-              <TouchableOpacity onPress={() => navigation.goBack()}>
-                <MaterialCommunityIcons name="arrow-left" size={24} color="#0F6E56" />
-              </TouchableOpacity>
-            ),
-          })}
-        />
-        <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerTitle: 'Check-in History' }} />
+        <Stack.Screen name="Report" component={ReportScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="ReportHistory" component={ReportHistoryScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="CheckInHistory" component={CheckInHistoryScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AlertsHistory" component={AlertsHistoryScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="AddDog" component={AddDogScreen} options={{ headerTitle: 'Add Dog' }} />
+        <Stack.Screen name="AddDog" component={AddDogScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Terms" component={TermsScreen} options={{ headerShown: false }} />
@@ -3780,6 +3998,11 @@ export default function App() {
     </NavigationContainer>
   );
 }
+
+const WrappedApp = (() => {
+  try { return Sentry.wrap(App); } catch (e) { return App; }
+})();
+export default WrappedApp;
 
 // ─── Screen: OTP Code Entry ───────────────────────────────────────────────────
 
@@ -3930,7 +4153,7 @@ const welcome = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     gap: 16,
-    marginTop: 250,
+    marginTop: 40,
     marginBottom: 8,
   },
   button: {
@@ -4881,13 +5104,6 @@ const checkIn = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
-  rateCounter: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
   rateLimitMsg: {
     fontSize: 14,
     color: '#9CA3AF',
@@ -5158,6 +5374,26 @@ const report_ = StyleSheet.create({
     paddingBottom: 48,
     gap: 24,
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: '#FAFAF9',
+  },
+  periodTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
@@ -5371,6 +5607,21 @@ const reportHistory = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 48,
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: '#FAFAF9',
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   title: {
     fontSize: 18,
     fontWeight: '600',
@@ -5409,6 +5660,21 @@ const reportHistory = StyleSheet.create({
 });
 
 const ciHistory = StyleSheet.create({
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: T.color.offWhite,
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   content: {
     paddingHorizontal: 16,
     paddingTop: T.space.sm,
@@ -5521,6 +5787,7 @@ const ah = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 56 : 40,
     paddingHorizontal: T.space.sm,
     paddingBottom: T.space.sm,
@@ -5528,7 +5795,12 @@ const ah = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: T.color.gray300,
   },
-  backBtn: { marginRight: 12 },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: T.color.teal,
+    letterSpacing: 0.3,
+  },
   title: { fontSize: 18, fontWeight: '600', color: T.color.charcoal },
   subtitle: { fontSize: 12, fontWeight: '500', color: T.color.gray600, marginTop: 2 },
   tabBar: {
@@ -5624,6 +5896,21 @@ const ah = StyleSheet.create({
 });
 
 const addDog = StyleSheet.create({
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: T.color.offWhite,
+  },
+  brand: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+    letterSpacing: 0.3,
+  },
   content: {
     padding: T.space.sm,
     paddingTop: T.space.md,

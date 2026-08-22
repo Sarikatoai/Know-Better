@@ -6,21 +6,27 @@
     "orientation": "portrait",
     "scheme": "knowbetter",
     "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAFAF9"
+    },
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.knowbetter.app",
+      "bundleIdentifier": "com.sarikasonawane.KnowBetter",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FAFAF9",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "com.sarikasonawane.KnowBetter"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -31,6 +37,14 @@
       }
     },
     "owner": "sarikasonawane",
-    "plugins": []
+    "plugins": [
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "sarika-sonawane",
+          "project": "react-native"
+        }
+      ]
+    ]
   }
 }

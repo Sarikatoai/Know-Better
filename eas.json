@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">= 21.2.0",
+    "version": ">= 20.4.0",
     "appVersionSource": "remote"
   },
   "build": {
@@ -12,7 +12,10 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
   },
   "submit": {
