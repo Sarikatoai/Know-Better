@@ -33,7 +33,8 @@ Deno.serve(async (req: Request) => {
     }
 
     for (const user of users) {
-      const offsetMinutes = user.timezone_offset_minutes ?? 0;
+      if (user.timezone_offset_minutes === null) continue;
+      const offsetMinutes = user.timezone_offset_minutes;
 
       // Shift now into user's local time
       const localNow = new Date(now.getTime() + offsetMinutes * 60 * 1000);
