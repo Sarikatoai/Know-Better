@@ -183,7 +183,7 @@ function AuthLoadingScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#FAFAF9', alignItems: 'center', justifyContent: 'center' }}>
       <StatusBar style="dark" />
-      <MaterialCommunityIcons name="paw" size={72} color="#0F6E56" />
+      <Image source={require('./assets/splash-icon.png')} style={{ width: 240, height: 240 }} resizeMode="contain" />
     </View>
   );
 }
