@@ -177,6 +177,17 @@ const DOG_BREEDS = [
   'Wirehaired Pointing Griffon', 'Yorkshire Terrier',
 ];
 
+// ─── Screen 0: Auth Loading ───────────────────────────────────────────────────
+
+function AuthLoadingScreen() {
+  return (
+    <View style={{ flex: 1, backgroundColor: '#FAFAF9', alignItems: 'center', justifyContent: 'center' }}>
+      <StatusBar style="dark" />
+      <MaterialCommunityIcons name="paw" size={72} color="#0F6E56" />
+    </View>
+  );
+}
+
 // ─── Screen 1: Welcome ───────────────────────────────────────────────────────
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -3852,30 +3863,36 @@ function App() {
         }
 
         if (event === 'INITIAL_SESSION') {
-          if (session) {
-            const { data: dogs } = await supabase
-              .from('dogs')
-              .select('dog_id, dog_name, profile_photo_url')
-              .eq('owner_id', session.user.id);
+          if (!session) {
+            navigateWhenReady([{ name: 'Welcome' }]);
+            return;
+          }
 
-            if (!dogs || dogs.length === 0) return;
+          const { data: dogs } = await supabase
+            .from('dogs')
+            .select('dog_id, dog_name, profile_photo_url')
+            .eq('owner_id', session.user.id);
 
-            if (dogs.length === 1) {
+          if (!dogs || dogs.length === 0) {
+            navigateWhenReady([{ name: 'Welcome' }]);
+            return;
+          }
+
+          if (dogs.length === 1) {
+            navigateWhenReady([{
+              name: 'CheckIn',
+              params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null },
+            }]);
+          } else {
+            const lastDogId = await AsyncStorage.getItem('last_selected_dog_id');
+            const lastDog = lastDogId ? dogs.find(d => d.dog_id === lastDogId) : null;
+            if (lastDog) {
               navigateWhenReady([{
                 name: 'CheckIn',
-                params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null },
+                params: { dogId: lastDog.dog_id, dogName: lastDog.dog_name, dogPhotoUrl: lastDog.profile_photo_url ?? null },
               }]);
             } else {
-              const lastDogId = await AsyncStorage.getItem('last_selected_dog_id');
-              const lastDog = lastDogId ? dogs.find(d => d.dog_id === lastDogId) : null;
-              if (lastDog) {
-                navigateWhenReady([{
-                  name: 'CheckIn',
-                  params: { dogId: lastDog.dog_id, dogName: lastDog.dog_name, dogPhotoUrl: lastDog.profile_photo_url ?? null },
-                }]);
-              } else {
-                navigateWhenReady([{ name: 'DogSelection' }]);
-              }
+              navigateWhenReady([{ name: 'DogSelection' }]);
             }
           }
           return;
@@ -3974,6 +3991,7 @@ function App() {
           headerBackTitle: '',
           headerShadowVisible: false,
         }}>
+        <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="DogName" component={DogNameScreen} />
         <Stack.Screen name="DogBreed" component={DogBreedScreen} />
