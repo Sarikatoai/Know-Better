@@ -930,6 +930,15 @@ const getCheckInTypeByTime = () => {
   return (hour >= 5 && hour < 17) ? 'morning' : 'evening';
 };
 
+const timeAgo = (isoString) => {
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 172800) return 'yesterday';
+  return new Date(isoString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
 const getTimeOfDay = () => {
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) return 'morning';
@@ -949,6 +958,8 @@ function CheckInScreen({ navigation, route }) {
   const [dogName, setDogName] = useState(paramDogName ?? '');
   const [dogPhotoUrl, setDogPhotoUrl] = useState(paramDogPhotoUrl ?? null);
   const [currentDogId, setCurrentDogId] = useState(paramDogId ?? null);
+  const [lastCheckInAt, setLastCheckInAt] = useState(null);
+  const [normalDaysThisMonth, setNormalDaysThisMonth] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
   const [transcription, setTranscription] = useState('');
@@ -1019,6 +1030,13 @@ function CheckInScreen({ navigation, route }) {
       setCurrentDogId(dogId);
       fetchDailyCount(dogId);
 
+      const [lastCiRes, normalCiRes] = await Promise.all([
+        supabase.from('check_ins').select('created_at').eq('dog_id', dogId).order('created_at', { ascending: false }).limit(1).single(),
+        supabase.from('check_ins').select('created_at').eq('dog_id', dogId).eq('input_classification', 'normal').gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
+      ]);
+      if (lastCiRes.data?.created_at) setLastCheckInAt(lastCiRes.data.created_at);
+      if (normalCiRes.data) setNormalDaysThisMonth(new Set(normalCiRes.data.map(c => c.created_at.slice(0, 10))).size);
+
       const { data: familyData } = await supabase
         .from('family_members')
         .select('family_member_id')
@@ -1080,6 +1098,8 @@ function CheckInScreen({ navigation, route }) {
     setActiveAlertLevel(null);
     setActiveAlertId(null);
     setAlertAcknowledged(false);
+    setLastCheckInAt(null);
+    setNormalDaysThisMonth(null);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) return;
@@ -2074,11 +2094,18 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
           ) : (
             <View style={checkIn.dogHeaderPhotoPlaceholder}>
-              <MaterialCommunityIcons name="paw" size={24} color="#0F6E56" />
+              <MaterialCommunityIcons name="paw" size={32} color="#0F6E56" />
             </View>
           )}
           <Text style={checkIn.dogHeaderName}>{dogName}</Text>
-          <MaterialCommunityIcons name="chevron-down" size={16} color="#9CA3AF" />
+          {(lastCheckInAt || normalDaysThisMonth > 0) ? (
+            <Text style={checkIn.dogHeaderStatus}>
+              {[
+                lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
+                normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
+              ].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
         </TouchableOpacity>
       ) : null}
 
@@ -2608,6 +2635,9 @@ function ReportScreen({ navigation, route }) {
             resolvedDogId = dogResult?.dog_id ?? null;
             if (!cancelled) { setDogId(resolvedDogId); if (dogResult?.dog_name) setDogName(dogResult.dog_name); }
           }
+        } else if (!paramDogName) {
+          const { data: dogResult } = await supabase.from('dogs').select('dog_name').eq('dog_id', resolvedDogId).single();
+          if (!cancelled && dogResult?.dog_name) setDogName(dogResult.dog_name);
         }
         if (!resolvedDogId) { if (!cancelled) setIsLoading(false); return; }
 
@@ -5061,29 +5091,34 @@ const checkIn = StyleSheet.create({
     letterSpacing: 0.3,
   },
   dogHeader: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     paddingVertical: 12,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   dogHeaderPhoto: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   dogHeaderPhotoPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#F3F4F6',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E8F3EF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   dogHeaderName: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#1F2937',
+    marginTop: 4,
+  },
+  dogHeaderStatus: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
   },
   scrollArea: {
     flex: 1,
