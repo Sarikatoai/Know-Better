@@ -986,7 +986,7 @@ function CheckInScreen({ navigation, route }) {
     const init = async () => {
       if (Platform.OS !== 'web') {
         const { status } = await Audio.requestPermissionsAsync();
-        if (status !== 'granted') setPermissionDenied(true);
+        if (status !== 'granted') { setPermissionDenied(true); setInputMode('type'); }
       }
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -2697,9 +2697,20 @@ function ReportScreen({ navigation, route }) {
 
       {/* 2 — Day Count */}
       <View style={report_.card}>
-        <Text style={report_.dayNum}>{summary_data.normal_day_count}</Text>
-        <Text style={report_.daySubtitle}>of {summary_data.total_days} normal days</Text>
-        <Text style={report_.dayHelper}>{dogName}'s normal pattern is built from recent good days.</Text>
+        <Text style={report_.daySummary}>
+          {(() => {
+            const normal = summary_data.normal_day_count;
+            const off = summary_data.concerning_day_count;
+            if (off === 0) return `${normal} normal days`;
+            if (normal === 0) return `${off} ${off === 1 ? 'off day' : 'off days'}, no normal days yet`;
+            return `${off} ${off === 1 ? 'off day' : 'off days'} of ${normal} normal days`;
+          })()}
+        </Text>
+        <Text style={report_.dayHelper}>
+          {summary_data.normal_day_count === 0
+            ? `Keep logging to build ${dogName}'s health pattern`
+            : `${dogName}'s normal pattern is built from recent good days.`}
+        </Text>
       </View>
 
       {/* 3 — Week Carousel */}
@@ -5461,6 +5472,12 @@ const report_ = StyleSheet.create({
   },
 
   // Day count
+  daySummary: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    textAlign: 'center',
+  },
   dayNum: {
     fontSize: 48,
     fontWeight: '800',

@@ -36,6 +36,7 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const [isLoadingNotif, setIsLoadingNotif] = useState(false);
+  const [dogCount, setDogCount] = useState(0);
   const slideAnim = useRef(new Animated.Value(-320)).current;
 
   useEffect(() => {
@@ -61,10 +62,12 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
       ? supabase.from('dogs').select('dog_id, dog_name, breed, sex, date_of_birth, pre_existing_health_conditions, profile_photo_url').eq('dog_id', propDogId).single()
       : supabase.from('dogs').select('dog_id, dog_name, breed, sex, date_of_birth, pre_existing_health_conditions, profile_photo_url').eq('owner_id', uid).limit(1).single();
 
-    const [userRes, dogRes] = await Promise.all([
+    const [userRes, dogRes, countRes] = await Promise.all([
       supabase.from('users').select('notifications_enabled').eq('user_id', uid).single(),
       dogQuery,
+      supabase.from('dogs').select('dog_id', { count: 'exact', head: true }).eq('owner_id', uid),
     ]);
+    setDogCount(countRes.count ?? 0);
 
     if (userRes.data) setNotificationsEnabled(userRes.data.notifications_enabled ?? false);
     if (dogRes.data) {
@@ -204,7 +207,25 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
 
             <View style={styles.divider} />
 
-            {/* 1d — Add Dog */}
+            {/* 1d — Switch Dog (multi-dog only) */}
+            {dogCount > 1 && (
+              <>
+                <TouchableOpacity
+                  style={styles.menuRow}
+                  activeOpacity={0.7}
+                  onPress={() => { onClose(); navigation.navigate('DogSelection', { mode: 'switch' }); }}
+                >
+                  <MaterialCommunityIcons name="swap-horizontal" size={20} color={C.charcoal} style={styles.rowIcon} />
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowLabel}>Switch Dog</Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={C.gray300} />
+                </TouchableOpacity>
+                <View style={styles.divider} />
+              </>
+            )}
+
+            {/* 1e — Add Dog */}
             <TouchableOpacity
               style={styles.menuRow}
               activeOpacity={0.7}
@@ -212,7 +233,7 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
             >
               <MaterialCommunityIcons name="plus-circle-outline" size={20} color={C.teal} style={styles.rowIcon} />
               <View style={styles.rowBody}>
-                <Text style={styles.rowLabel}>Add Dog</Text>
+                <Text style={styles.rowLabel}>Add Pet</Text>
               </View>
               <MaterialCommunityIcons name="chevron-right" size={20} color={C.gray300} />
             </TouchableOpacity>
