@@ -2091,7 +2091,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         keyboardShouldPersistTaps="handled"
       >
         <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName || 'there'}.</Text>
-        <Text style={checkIn.question}>How did {dogName || 'your dog'}'s {getTimeOfDay()} go?</Text>
+        <Text style={checkIn.question}>How is {dogName || 'your dog'} doing today?</Text>
 
         <>
             <View style={checkIn.modeToggle}>
