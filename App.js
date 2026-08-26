@@ -2669,7 +2669,7 @@ function ReportScreen({ navigation, route }) {
   const goToPrevWeek = () => setWeekIndex(Math.max(0, activeWeekIndex - 1));
   const goToNextWeek = () => setWeekIndex(Math.min(weeks.length - 1, activeWeekIndex + 1));
   const periodTitle = report.period_start
-    ? new Date(`${report.period_start}T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    ? `${dogName ? `${dogName} · ` : ''}${new Date(`${report.period_start}T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
     : '';
 
   return (
