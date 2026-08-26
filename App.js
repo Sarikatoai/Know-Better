@@ -938,7 +938,7 @@ const getTimeOfDay = () => {
 };
 
 const ALERT_BANNER_CONFIG = {
-  1: { bg: '#FFFBEB', text: 'I noticed a pattern', color: '#D97706' },
+  1: { bg: '#FFFBEB', text: 'A new pattern is emerging', color: '#D97706' },
   2: { bg: '#FFF7ED', text: 'Worth mentioning to your vet', color: '#EA580C' },
   3: { bg: '#FEE2E2', text: 'Contact your vet today', color: '#DC2626' },
 };
@@ -2588,6 +2588,7 @@ function ReportScreen({ navigation, route }) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(null);
   const [weekIndex, setWeekIndex] = useState(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
 
   useFocusEffect(
@@ -2654,10 +2655,9 @@ function ReportScreen({ navigation, route }) {
     );
   }
   const hasActiveAlert = summary_data.alerts.some(a => a.status === 'active');
-  const overall_status = (savedStatus === 'alert_fired' || savedStatus === 'patterns_noted' || savedStatus === 'mostly_normal') && !hasActiveAlert && summary_data.alerts.length > 0
-    ? 'all_clear'
-    : savedStatus;
-  const hero = STATUS_HERO_CONFIG[overall_status] ?? STATUS_HERO_CONFIG.all_clear;
+  const maxActiveLevel = hasActiveAlert
+    ? Math.max(...summary_data.alerts.filter(a => a.status === 'active').map(a => a.level))
+    : null;
 
   const weeks = chunkIntoWeeks(summary_data.days);
   const activeWeekIndex = weekIndex === null ? weeks.length - 1 : weekIndex;
@@ -2674,7 +2674,9 @@ function ReportScreen({ navigation, route }) {
   return (
     <View style={{ flex: 1, backgroundColor: '#FAFAF9' }}>
       <View style={report_.topBar}>
-        {periodTitle ? <Text style={report_.periodTitle}>{periodTitle}</Text> : <View />}
+        <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
           <Text style={report_.brand}>Know Better</Text>
@@ -2683,15 +2685,16 @@ function ReportScreen({ navigation, route }) {
     <ScrollView style={report_.container} contentContainerStyle={report_.content}>
 
       {/* 1 — Status Hero */}
-      {summary_data.alerts.length > 0 && !hasActiveAlert ? (
-        <View style={report_.resolvedBanner}>
-          <Text style={report_.resolvedBannerText}>
-            Sounds like {dogName || 'your dog'} is in good hands. We're here if anything changes.
-          </Text>
-        </View>
+      {hasActiveAlert && maxActiveLevel ? (
+        <>
+          <View style={[report_.heroCard, { backgroundColor: ALERT_BANNER_CONFIG[maxActiveLevel].color }]}>
+            <Text style={report_.heroText}>{ALERT_BANNER_CONFIG[maxActiveLevel].text}</Text>
+          </View>
+          {periodTitle ? <Text style={[report_.periodTitle, { textAlign: 'center', marginTop: 16, marginBottom: 4 }]}>{periodTitle}</Text> : null}
+        </>
       ) : (
-        <View style={[report_.heroCard, { backgroundColor: hero.bg }]}>
-          <Text style={report_.heroText}>{hero.text(dogName)}</Text>
+        <View style={{ paddingTop: 24 }}>
+          {periodTitle ? <Text style={[report_.periodTitle, { textAlign: 'center', marginBottom: 8 }]}>{periodTitle}</Text> : null}
         </View>
       )}
 
@@ -2784,20 +2787,19 @@ function ReportScreen({ navigation, route }) {
       {summary_data.alerts.length > 0 && (
         <View style={report_.alertStack}>
           {summary_data.alerts.slice().reverse().map((a, i) => {
-            const isResolved = a.status === 'resolved';
             const lc = ALERT_CARD_COLORS[a.level] ?? ALERT_CARD_COLORS[1];
-            if (isResolved) {
-              return (
-                <View key={i} style={[report_.alertCard, { borderLeftColor: '#059669', backgroundColor: '#ECFDF5' }]}>
-                  <Text style={report_.alertDate}>{formatShortDate(a.date)}</Text>
-                  <Text style={[report_.alertLevel, { color: '#059669' }]}>Vet update logged</Text>
-                  <Text style={report_.alertReason}>Follow up as needed.</Text>
-                </View>
-              );
-            }
+            const statusConfig = {
+              active:       { label: 'Active',       color: lc.border, cardBorder: lc.border, cardBg: lc.bg },
+              acknowledged: { label: 'Acknowledged', color: '#D97706', cardBorder: lc.border, cardBg: lc.bg },
+              resolved:     { label: 'Resolved',     color: '#059669', cardBorder: '#059669', cardBg: '#ECFDF5' },
+              expired:      { label: 'Expired',      color: '#9CA3AF', cardBorder: '#E5E7EB', cardBg: '#F9FAFB' },
+            }[a.status] ?? { label: a.status,        color: '#9CA3AF', cardBorder: '#E5E7EB', cardBg: '#F9FAFB' };
             return (
-              <View key={i} style={[report_.alertCard, { borderLeftColor: lc.border, backgroundColor: lc.bg }]}>
-                <Text style={report_.alertDate}>{formatShortDate(a.date)}</Text>
+              <View key={i} style={[report_.alertCard, { borderLeftColor: statusConfig.cardBorder, backgroundColor: statusConfig.cardBg }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text style={report_.alertDate}>{formatShortDate(a.date)}</Text>
+                  <Text style={[report_.alertDate, { color: statusConfig.color, fontWeight: '600' }]}>{statusConfig.label}</Text>
+                </View>
                 <Text style={report_.alertLevel}>{lc.name}</Text>
                 {a.reason ? <Text style={report_.alertReason}>{a.reason}</Text> : null}
               </View>
@@ -2815,6 +2817,13 @@ function ReportScreen({ navigation, route }) {
       </TouchableOpacity>
 
     </ScrollView>
+    <BurgerMenu
+      isOpen={isMenuOpen}
+      onClose={() => setIsMenuOpen(false)}
+      navigation={navigation}
+      dogId={dogId}
+      dogName={dogName}
+    />
     </View>
   );
 }
