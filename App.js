@@ -5480,7 +5480,7 @@ const report_ = StyleSheet.create({
 
   // Shared card shell
   card: {
-    backgroundColor: '#FAFAF9',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 8,
@@ -5739,7 +5739,7 @@ const ciHistory = StyleSheet.create({
     marginTop: 24,
   },
   row: {
-    backgroundColor: T.color.offWhite,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: T.color.gray300,
     borderRadius: T.radius.card,
