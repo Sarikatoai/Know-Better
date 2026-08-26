@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react-native';
+import Constants from 'expo-constants';
 import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
 import { setupPushNotifications } from './lib/notifications';
@@ -996,7 +997,7 @@ function CheckInScreen({ navigation, route }) {
       Sentry.setUser({ id: userId });
       logAnalyticsEvent(userId, 'app_open', {});
 
-      if (Platform.OS !== 'web') {
+      if (Platform.OS !== 'web' && Constants.executionEnvironment !== 'storeClient') {
         const { token } = await setupPushNotifications();
         if (token) {
           await supabase.from('users').update({ push_token: token }).eq('user_id', userId);
@@ -2698,7 +2699,7 @@ function ReportScreen({ navigation, route }) {
       <View style={report_.card}>
         <Text style={report_.dayNum}>{summary_data.normal_day_count}</Text>
         <Text style={report_.daySubtitle}>of {summary_data.total_days} normal days</Text>
-        <Text style={report_.dayHelper}>Last 7 days used to calculate baseline</Text>
+        <Text style={report_.dayHelper}>{dogName}'s normal pattern is built from recent good days.</Text>
       </View>
 
       {/* 3 — Week Carousel */}
