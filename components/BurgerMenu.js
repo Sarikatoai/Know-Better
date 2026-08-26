@@ -26,7 +26,7 @@ const C = {
   red:      '#DC2626',
 };
 
-export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propDogName, dogId: propDogId }) {
+export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propDogName, dogId: propDogId, onPhotoUpdate }) {
   const [dogProfile, setDogProfile] = useState(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [userId, setUserId] = useState(null);
@@ -91,6 +91,7 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
       return;
     }
     setPhotoUrl(result.url);
+    onPhotoUpdate?.(result.url);
   };
 
   const calculateAge = (dob) => {

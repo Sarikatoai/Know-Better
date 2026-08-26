@@ -2262,6 +2262,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         navigation={navigation}
         dogName={dogName}
         dogId={currentDogId}
+        onPhotoUpdate={(url) => setDogPhotoUrl(url)}
       />
 
       {vetSuccessToast && (
@@ -3473,6 +3474,7 @@ function AddDogScreen({ navigation }) {
   const [age, setAge] = useState(null);
   const [showAgeDropdown, setShowAgeDropdown] = useState(false);
   const [localPhotoUri, setLocalPhotoUri] = useState(null);
+  const [localPhotoBase64, setLocalPhotoBase64] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -3489,8 +3491,12 @@ function AddDogScreen({ navigation }) {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      base64: true,
     });
-    if (!result.canceled) setLocalPhotoUri(result.assets[0].uri);
+    if (!result.canceled) {
+      setLocalPhotoUri(result.assets[0].uri);
+      setLocalPhotoBase64(result.assets[0].base64 ?? null);
+    }
   };
 
   const handleSave = async () => {
@@ -3527,16 +3533,17 @@ function AddDogScreen({ navigation }) {
       if (memberError) throw memberError;
 
       let photoUrl = null;
-      if (localPhotoUri) {
+      if (localPhotoUri && localPhotoBase64) {
         try {
-          const res = await fetch(localPhotoUri);
-          const blob = await res.blob();
-          const mimeType = blob.type || 'image/jpeg';
-          const ext = mimeType.includes('png') ? 'png' : 'jpg';
+          const ext = localPhotoUri.toLowerCase().includes('.png') ? 'png' : 'jpg';
+          const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
           const path = `${dog.dog_id}.${ext}`;
+          const binaryString = atob(localPhotoBase64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
           const { error: uploadErr } = await supabase.storage
             .from('dog-profiles')
-            .upload(path, blob, { contentType: mimeType, upsert: true });
+            .upload(path, bytes, { contentType: mimeType, upsert: true });
           if (!uploadErr) {
             const { data: urlData } = supabase.storage.from('dog-profiles').getPublicUrl(path);
             photoUrl = urlData?.publicUrl ?? null;
