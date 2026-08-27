@@ -18,6 +18,7 @@ import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Alert,
@@ -953,6 +954,7 @@ const ALERT_BANNER_CONFIG = {
 };
 
 function CheckInScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const { userName: paramUserName, dogName: paramDogName, dogId: paramDogId, dogPhotoUrl: paramDogPhotoUrl } = route.params ?? {};
   const [userName, setUserName] = useState(paramUserName ?? '');
   const [dogName, setDogName] = useState(paramDogName ?? '');
@@ -2071,7 +2073,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
   const isAtLimit = dailyCountLoaded && dailyCount >= DAILY_CHECKIN_LIMIT;
 
   return (
-    <View style={checkIn.container}>
+    <View style={[checkIn.container, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
 
       <View style={checkIn.topBar}>
@@ -2084,31 +2086,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         </TouchableOpacity>
       </View>
 
-      {dogName ? (
-        <TouchableOpacity
-          style={checkIn.dogHeader}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('DogSelection', { mode: 'switch' })}
-        >
-          {dogPhotoUrl ? (
-            <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
-          ) : (
-            <View style={checkIn.dogHeaderPhotoPlaceholder}>
-              <MaterialCommunityIcons name="paw" size={32} color="#0F6E56" />
-            </View>
-          )}
-          <Text style={checkIn.dogHeaderName}>{dogName}</Text>
-          {(lastCheckInAt || normalDaysThisMonth > 0) ? (
-            <Text style={checkIn.dogHeaderStatus}>
-              {[
-                lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
-                normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
-              ].filter(Boolean).join(' · ')}
-            </Text>
-          ) : null}
-        </TouchableOpacity>
-      ) : null}
-
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <ScrollView
         ref={scrollRef}
@@ -2117,8 +2094,37 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {dogName ? (
+          <TouchableOpacity
+            style={checkIn.dogHeader}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('DogSelection', { mode: 'switch' })}
+          >
+            {dogPhotoUrl ? (
+              <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
+            ) : (
+              <View style={checkIn.dogHeaderPhotoPlaceholder}>
+                <MaterialCommunityIcons name="paw" size={32} color="#0F6E56" />
+              </View>
+            )}
+            <Text style={checkIn.dogHeaderName}>{dogName}</Text>
+            {(lastCheckInAt || normalDaysThisMonth > 0) ? (
+              <Text style={checkIn.dogHeaderStatus}>
+                {[
+                  lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
+                  normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
+                ].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
+          </TouchableOpacity>
+        ) : null}
+
         <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName || 'there'}.</Text>
         <Text style={checkIn.question}>How is {dogName || 'your dog'} doing today?</Text>
+
+        {lastCheckInAt === null && dogName ? (
+          <Text style={checkIn.firstCheckInHint}>Daily check-ins help Know Better learn {dogName}'s normal patterns and notice changes over time.</Text>
+        ) : null}
 
         <>
             <View style={checkIn.modeToggle}>
@@ -2609,6 +2615,7 @@ const generateVetReport = async (dogId, year, month) => {
 };
 
 function ReportScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const { dogId: paramDogId, dogName: paramDogName, reportId } = route.params ?? {};
   const [dogId, setDogId] = useState(paramDogId ?? null);
   const [dogName, setDogName] = useState(paramDogName ?? '');
@@ -2704,7 +2711,7 @@ function ReportScreen({ navigation, route }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FAFAF9' }}>
-      <View style={report_.topBar}>
+      <View style={[report_.topBar, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
@@ -2860,6 +2867,7 @@ function ReportScreen({ navigation, route }) {
 }
 
 function ReportHistoryScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const { dogId: paramDogId, dogName } = route.params ?? {};
   const [reports, setReports] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -2928,7 +2936,7 @@ function ReportHistoryScreen({ navigation, route }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FAFAF9' }}>
-      <View style={reportHistory.topBar}>
+      <View style={[reportHistory.topBar, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
@@ -2989,6 +2997,7 @@ const formatCheckInDate = (iso) => {
 };
 
 function CheckInHistoryScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const { dogId: paramDogId, dogName } = route.params ?? {};
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -3049,7 +3058,7 @@ function CheckInHistoryScreen({ navigation, route }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.color.offWhite }}>
-      <View style={ciHistory.topBar}>
+      <View style={[ciHistory.topBar, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
@@ -3157,6 +3166,7 @@ const LEVEL_BADGE = {
 };
 
 function AlertsHistoryScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const { dogId: paramDogId, dogName: paramDogName, initialTab } = route.params ?? {};
   const [dogId, setDogId] = useState(paramDogId ?? null);
   const [dogName, setDogName] = useState(paramDogName ?? '');
@@ -3412,7 +3422,7 @@ function AlertsHistoryScreen({ navigation, route }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.color.gray100 }}>
-      <View style={ah.header}>
+      <View style={[ah.header, { paddingTop: insets.top + 12 }]}>
         <View>
           <Text style={ah.title}>Alerts</Text>
           <Text style={ah.subtitle}>Active & past alerts for {dogName || 'your dog'}</Text>
@@ -3497,6 +3507,7 @@ function AlertsHistoryScreen({ navigation, route }) {
 // ─── Screen: Add Dog ─────────────────────────────────────────────────────────
 
 function AddDogScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [breed, setBreed] = useState('');
   const [showBreedSuggestions, setShowBreedSuggestions] = useState(false);
@@ -3609,7 +3620,7 @@ function AddDogScreen({ navigation }) {
       style={{ flex: 1, backgroundColor: T.color.offWhite }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={addDog.topBar}>
+      <View style={[addDog.topBar, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <MaterialCommunityIcons name="chevron-left" size={28} color="#0F6E56" />
         </TouchableOpacity>
@@ -5074,7 +5085,6 @@ const checkIn = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FAFAF9',
-    paddingTop: 52,
     paddingHorizontal: 16,
     paddingBottom: 24,
   },
@@ -5092,26 +5102,27 @@ const checkIn = StyleSheet.create({
   },
   dogHeader: {
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    marginBottom: 16,
+    gap: 4,
+    paddingTop: 8,
+    paddingBottom: 4,
+    marginBottom: 8,
   },
   dogHeaderPhoto: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
   },
   dogHeaderPhotoPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: '#E8F3EF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   dogHeaderName: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#1F2937',
     marginTop: 4,
   },
@@ -5120,10 +5131,20 @@ const checkIn = StyleSheet.create({
     color: '#9CA3AF',
     textAlign: 'center',
   },
+  firstCheckInHint: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 24,
+    marginBottom: 8,
+  },
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
     alignItems: 'center',
     paddingBottom: 16,
   },
@@ -5142,7 +5163,7 @@ const checkIn = StyleSheet.create({
     color: '#9CA3AF',
     textAlign: 'center',
     lineHeight: 21,
-    marginBottom: 32,
+    marginBottom: 20,
     width: '100%',
   },
   micOuter: {
@@ -5459,7 +5480,6 @@ const report_ = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 52,
     paddingHorizontal: 16,
     paddingBottom: 12,
     backgroundColor: '#FAFAF9',
@@ -5698,7 +5718,6 @@ const reportHistory = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 52,
     paddingHorizontal: 16,
     paddingBottom: 12,
     backgroundColor: '#FAFAF9',
@@ -5751,7 +5770,6 @@ const ciHistory = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 52,
     paddingHorizontal: 16,
     paddingBottom: 12,
     backgroundColor: T.color.offWhite,
@@ -5875,7 +5893,6 @@ const ah = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 56 : 40,
     paddingHorizontal: T.space.sm,
     paddingBottom: T.space.sm,
     backgroundColor: T.color.offWhite,
@@ -5987,7 +6004,6 @@ const addDog = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 52,
     paddingHorizontal: 16,
     paddingBottom: 12,
     backgroundColor: T.color.offWhite,
