@@ -18,7 +18,7 @@ import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets, initialWindowMetrics } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Alert,
@@ -2083,6 +2083,33 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         </TouchableOpacity>
       </View>
 
+      {dogName ? (
+        <TouchableOpacity
+          style={checkIn.dogHeader}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('DogSelection', { mode: 'switch' })}
+        >
+          {dogPhotoUrl ? (
+            <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
+          ) : (
+            <View style={checkIn.dogHeaderPhotoPlaceholder}>
+              <MaterialCommunityIcons name="paw" size={32} color="#0F6E56" />
+            </View>
+          )}
+          <Text style={checkIn.dogHeaderName}>{dogName}</Text>
+          <View style={{ height: 18 }}>
+            {statsLoaded && (lastCheckInAt || normalDaysThisMonth > 0) ? (
+              <Text style={checkIn.dogHeaderStatus}>
+                {[
+                  lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
+                  normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
+                ].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <ScrollView
         ref={scrollRef}
@@ -2091,33 +2118,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {dogName ? (
-          <TouchableOpacity
-            style={checkIn.dogHeader}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('DogSelection', { mode: 'switch' })}
-          >
-            {dogPhotoUrl ? (
-              <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
-            ) : (
-              <View style={checkIn.dogHeaderPhotoPlaceholder}>
-                <MaterialCommunityIcons name="paw" size={32} color="#0F6E56" />
-              </View>
-            )}
-            <Text style={checkIn.dogHeaderName}>{dogName}</Text>
-            <View style={{ height: 18 }}>
-              {statsLoaded && (lastCheckInAt || normalDaysThisMonth > 0) ? (
-                <Text style={checkIn.dogHeaderStatus}>
-                  {[
-                    lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
-                    normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
-                  ].filter(Boolean).join(' · ')}
-                </Text>
-              ) : null}
-            </View>
-          </TouchableOpacity>
-        ) : null}
-
         <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName || 'there'}.</Text>
         <Text style={checkIn.question}>How is {dogName || 'your dog'} doing today?</Text>
 
@@ -3938,10 +3938,11 @@ function App() {
             return;
           }
 
-          const { data: dogs } = await supabase
-            .from('dogs')
-            .select('dog_id, dog_name, profile_photo_url')
-            .eq('owner_id', session.user.id);
+          const [{ data: dogs }, { data: userData }] = await Promise.all([
+            supabase.from('dogs').select('dog_id, dog_name, profile_photo_url').eq('owner_id', session.user.id),
+            supabase.from('users').select('first_name').eq('user_id', session.user.id).single(),
+          ]);
+          const userName = userData?.first_name ?? '';
 
           if (!dogs || dogs.length === 0) {
             navigateWhenReady([{ name: 'Welcome' }]);
@@ -3951,7 +3952,7 @@ function App() {
           if (dogs.length === 1) {
             navigateWhenReady([{
               name: 'CheckIn',
-              params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null },
+              params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null, userName },
             }]);
           } else {
             const lastDogId = await AsyncStorage.getItem('last_selected_dog_id');
@@ -3959,7 +3960,7 @@ function App() {
             if (lastDog) {
               navigateWhenReady([{
                 name: 'CheckIn',
-                params: { dogId: lastDog.dog_id, dogName: lastDog.dog_name, dogPhotoUrl: lastDog.profile_photo_url ?? null },
+                params: { dogId: lastDog.dog_id, dogName: lastDog.dog_name, dogPhotoUrl: lastDog.profile_photo_url ?? null, userName },
               }]);
             } else {
               navigateWhenReady([{ name: 'DogSelection' }]);
@@ -3970,17 +3971,18 @@ function App() {
 
         if (event === 'SIGNED_IN' && session) {
           console.log('[DEBUG] SIGNED_IN — querying dogs for owner_id:', session.user.id);
-          const { data: dogs } = await supabase
-            .from('dogs')
-            .select('dog_id, dog_name, profile_photo_url')
-            .eq('owner_id', session.user.id);
+          const [{ data: dogs }, { data: siUserData }] = await Promise.all([
+            supabase.from('dogs').select('dog_id, dog_name, profile_photo_url').eq('owner_id', session.user.id),
+            supabase.from('users').select('first_name').eq('user_id', session.user.id).single(),
+          ]);
+          const siUserName = siUserData?.first_name ?? '';
           console.log('[DEBUG] dogs query result:', JSON.stringify(dogs));
 
           if (dogs && dogs.length > 0) {
             if (dogs.length === 1) {
               navigateWhenReady([{
                 name: 'CheckIn',
-                params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null },
+                params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null, userName: siUserName },
               }]);
             } else {
               navigateWhenReady([{ name: 'DogSelection' }]);
@@ -4053,6 +4055,7 @@ function App() {
   }, []);
 
   return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{
           headerTitle: '',
@@ -4084,6 +4087,7 @@ function App() {
         <Stack.Screen name="Terms" component={TermsScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 
@@ -5086,13 +5090,13 @@ const checkIn = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FAFAF9',
-    paddingHorizontal: 16,
     paddingBottom: 24,
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
     marginBottom: 8,
   },
   brand: {
@@ -5145,10 +5149,10 @@ const checkIn = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'stretch',
+    paddingHorizontal: 16,
+    paddingTop: 32,
     paddingBottom: 16,
-    width: '100%',
   },
   greeting: {
     fontSize: 28,
@@ -5157,7 +5161,6 @@ const checkIn = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 34,
     marginBottom: 8,
-    width: '100%',
   },
   question: {
     fontSize: 14,
@@ -5166,7 +5169,6 @@ const checkIn = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 21,
     marginBottom: 20,
-    width: '100%',
   },
   micOuter: {
     width: 80,
