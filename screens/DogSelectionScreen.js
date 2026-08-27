@@ -27,11 +27,7 @@ export default function DogSelectionScreen({ navigation, route }) {
         .from('dogs')
         .select('dog_id, dog_name, profile_photo_url')
         .eq('owner_id', session.user.id);
-      const ts = Date.now();
-      setDogs((data ?? []).map(d => ({
-        ...d,
-        profile_photo_url: d.profile_photo_url ? `${d.profile_photo_url}?t=${ts}` : null,
-      })));
+      setDogs(data ?? []);
       setIsLoading(false);
     };
     load();
@@ -46,6 +42,7 @@ export default function DogSelectionScreen({ navigation, route }) {
       dogName: dog.dog_name,
       dogPhotoUrl: dog.profile_photo_url ?? null,
     };
+    if (dog.profile_photo_url) Image.prefetch(dog.profile_photo_url);
     if (mode === 'switch') {
       navigation.navigate('CheckIn', params);
     } else {

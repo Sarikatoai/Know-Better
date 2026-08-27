@@ -74,8 +74,7 @@ export default function BurgerMenu({ isOpen, onClose, navigation, dogName: propD
       setDogProfile(dogRes.data);
       setDogId(dogRes.data.dog_id);
       if (!propDogName) setDogName(dogRes.data.dog_name ?? '');
-      const rawUrl = dogRes.data.profile_photo_url ?? null;
-      setPhotoUrl(rawUrl ? `${rawUrl}?t=${Date.now()}` : null);
+      setPhotoUrl(dogRes.data.profile_photo_url ?? null);
     }
   };
 

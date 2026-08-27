@@ -993,7 +993,7 @@ function CheckInScreen({ navigation, route }) {
   const autoStopRef = useRef(null);
   const recordingStartRef = useRef(null);
   const userIdRef = useRef(null);
-  const dogIdRef = useRef(null);
+  const dogIdRef = useRef(paramDogId ?? null);
   const familyMemberIdRef = useRef(null);
 
   useEffect(() => {
@@ -1019,26 +1019,29 @@ function CheckInScreen({ navigation, route }) {
         }
       }
 
-      const [userResult, dogResult] = await Promise.all([
+      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+      const [userResult, dogResult, lastCiRes, normalCiRes, familyRes] = await Promise.all([
         supabase.from('users').select('first_name').eq('user_id', userId).single(),
         paramDogId
           ? supabase.from('dogs').select('dog_name, dog_id, profile_photo_url').eq('dog_id', paramDogId).single()
           : supabase.from('dogs').select('dog_name, dog_id, profile_photo_url').eq('owner_id', userId).limit(1).single(),
+        paramDogId
+          ? supabase.from('check_ins').select('created_at').eq('dog_id', paramDogId).order('created_at', { ascending: false }).limit(1).single()
+          : Promise.resolve({ data: null }),
+        paramDogId
+          ? supabase.from('check_ins').select('created_at').eq('dog_id', paramDogId).eq('input_classification', 'normal').gte('created_at', monthStart)
+          : Promise.resolve({ data: null }),
+        paramDogId
+          ? supabase.from('family_members').select('family_member_id').eq('owner_id', userId).eq('dog_id', paramDogId).single()
+          : Promise.resolve({ data: null }),
       ]);
       if (userResult.data?.first_name) setUserName(userResult.data.first_name);
       if (dogResult.data?.dog_name) setDogName(dogResult.data.dog_name);
-      if (dogResult.data?.profile_photo_url) setDogPhotoUrl(`${dogResult.data.profile_photo_url}?t=${Date.now()}`);
-      const dogId = dogResult.data?.dog_id ?? null;
+      if (dogResult.data?.profile_photo_url) setDogPhotoUrl(dogResult.data.profile_photo_url);
+      const dogId = dogResult.data?.dog_id ?? paramDogId ?? null;
       dogIdRef.current = dogId;
       setCurrentDogId(dogId);
       fetchDailyCount(dogId);
-
-      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-      const [lastCiRes, normalCiRes, familyRes] = await Promise.all([
-        supabase.from('check_ins').select('created_at').eq('dog_id', dogId).order('created_at', { ascending: false }).limit(1).single(),
-        supabase.from('check_ins').select('created_at').eq('dog_id', dogId).eq('input_classification', 'normal').gte('created_at', monthStart),
-        supabase.from('family_members').select('family_member_id').eq('owner_id', userId).eq('dog_id', dogId).single(),
-      ]);
       if (lastCiRes.data?.created_at) setLastCheckInAt(lastCiRes.data.created_at);
       if (normalCiRes.data) setNormalDaysThisMonth(new Set(normalCiRes.data.map(c => c.created_at.slice(0, 10))).size);
       setStatsLoaded(true);
@@ -1090,7 +1093,7 @@ function CheckInScreen({ navigation, route }) {
     dogIdRef.current = newDogId;
     setCurrentDogId(newDogId);
     if (route.params?.dogName) setDogName(route.params.dogName);
-    setDogPhotoUrl(route.params?.dogPhotoUrl ? `${route.params.dogPhotoUrl}?t=${Date.now()}` : null);
+    setDogPhotoUrl(route.params?.dogPhotoUrl ?? null);
     setTranscription('');
     setClaudeResponse('');
     setActiveAlertLevel(null);
@@ -2083,33 +2086,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         </TouchableOpacity>
       </View>
 
-      {dogName ? (
-        <TouchableOpacity
-          style={checkIn.dogHeader}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('DogSelection', { mode: 'switch' })}
-        >
-          {dogPhotoUrl ? (
-            <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
-          ) : (
-            <View style={checkIn.dogHeaderPhotoPlaceholder}>
-              <MaterialCommunityIcons name="paw" size={32} color="#0F6E56" />
-            </View>
-          )}
-          <Text style={checkIn.dogHeaderName}>{dogName}</Text>
-          <View style={{ height: 18 }}>
-            {statsLoaded && (lastCheckInAt || normalDaysThisMonth > 0) ? (
-              <Text style={checkIn.dogHeaderStatus}>
-                {[
-                  lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
-                  normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
-                ].filter(Boolean).join(' · ')}
-              </Text>
-            ) : null}
-          </View>
-        </TouchableOpacity>
-      ) : null}
-
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <ScrollView
         ref={scrollRef}
@@ -2118,7 +2094,36 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName || 'there'}.</Text>
+        {dogName ? (
+          <TouchableOpacity
+            style={checkIn.dogHeader}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('DogSelection', { mode: 'switch' })}
+          >
+            {dogPhotoUrl ? (
+              <Image source={{ uri: dogPhotoUrl }} style={checkIn.dogHeaderPhoto} />
+            ) : (
+              <View style={checkIn.dogHeaderPhotoPlaceholder}>
+                <MaterialCommunityIcons name="paw" size={32} color="#0F6E56" />
+              </View>
+            )}
+            <Text style={checkIn.dogHeaderName}>{dogName}</Text>
+            <View style={{ height: 18 }}>
+              {statsLoaded && (lastCheckInAt || normalDaysThisMonth > 0) ? (
+                <Text style={checkIn.dogHeaderStatus}>
+                  {[
+                    lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
+                    normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+        ) : null}
+
+        {userName ? (
+          <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName}.</Text>
+        ) : null}
         <Text style={checkIn.question}>How is {dogName || 'your dog'} doing today?</Text>
 
         <View style={{ minHeight: 44 }}>
@@ -3950,6 +3955,7 @@ function App() {
           }
 
           if (dogs.length === 1) {
+            if (dogs[0].profile_photo_url) Image.prefetch(dogs[0].profile_photo_url);
             navigateWhenReady([{
               name: 'CheckIn',
               params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null, userName },
@@ -3958,6 +3964,7 @@ function App() {
             const lastDogId = await AsyncStorage.getItem('last_selected_dog_id');
             const lastDog = lastDogId ? dogs.find(d => d.dog_id === lastDogId) : null;
             if (lastDog) {
+              if (lastDog.profile_photo_url) Image.prefetch(lastDog.profile_photo_url);
               navigateWhenReady([{
                 name: 'CheckIn',
                 params: { dogId: lastDog.dog_id, dogName: lastDog.dog_name, dogPhotoUrl: lastDog.profile_photo_url ?? null, userName },
@@ -3980,6 +3987,7 @@ function App() {
 
           if (dogs && dogs.length > 0) {
             if (dogs.length === 1) {
+              if (dogs[0].profile_photo_url) Image.prefetch(dogs[0].profile_photo_url);
               navigateWhenReady([{
                 name: 'CheckIn',
                 params: { dogId: dogs[0].dog_id, dogName: dogs[0].dog_name, dogPhotoUrl: dogs[0].profile_photo_url ?? null, userName: siUserName },
@@ -5175,6 +5183,7 @@ const checkIn = StyleSheet.create({
     height: 80,
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
     marginBottom: 12,
   },
   ring: {
