@@ -962,6 +962,7 @@ function CheckInScreen({ navigation, route }) {
   const [currentDogId, setCurrentDogId] = useState(paramDogId ?? null);
   const [lastCheckInAt, setLastCheckInAt] = useState(null);
   const [normalDaysThisMonth, setNormalDaysThisMonth] = useState(null);
+  const [statsLoaded, setStatsLoaded] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [recordingState, setRecordingState] = useState('idle'); // 'idle' | 'recording' | 'processing'
   const [transcription, setTranscription] = useState('');
@@ -1032,21 +1033,16 @@ function CheckInScreen({ navigation, route }) {
       setCurrentDogId(dogId);
       fetchDailyCount(dogId);
 
-      const [lastCiRes, normalCiRes] = await Promise.all([
+      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+      const [lastCiRes, normalCiRes, familyRes] = await Promise.all([
         supabase.from('check_ins').select('created_at').eq('dog_id', dogId).order('created_at', { ascending: false }).limit(1).single(),
-        supabase.from('check_ins').select('created_at').eq('dog_id', dogId).eq('input_classification', 'normal').gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
+        supabase.from('check_ins').select('created_at').eq('dog_id', dogId).eq('input_classification', 'normal').gte('created_at', monthStart),
+        supabase.from('family_members').select('family_member_id').eq('owner_id', userId).eq('dog_id', dogId).single(),
       ]);
       if (lastCiRes.data?.created_at) setLastCheckInAt(lastCiRes.data.created_at);
       if (normalCiRes.data) setNormalDaysThisMonth(new Set(normalCiRes.data.map(c => c.created_at.slice(0, 10))).size);
-
-      const { data: familyData } = await supabase
-        .from('family_members')
-        .select('family_member_id')
-        .eq('owner_id', userId)
-        .eq('dog_id', dogId)
-        .single();
-      const familyMemberId = familyData?.family_member_id;
-      console.log('[Init] family_members result:', JSON.stringify(familyData));
+      setStatsLoaded(true);
+      const familyMemberId = familyRes.data?.family_member_id;
       if (familyMemberId) familyMemberIdRef.current = familyMemberId;
       console.log('[Init] IDs loaded — userId:', userId, 'dogId:', dogId, 'familyMemberId:', familyMemberId);
     };
@@ -1102,6 +1098,7 @@ function CheckInScreen({ navigation, route }) {
     setAlertAcknowledged(false);
     setLastCheckInAt(null);
     setNormalDaysThisMonth(null);
+    setStatsLoaded(false);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) return;
@@ -2108,23 +2105,27 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               </View>
             )}
             <Text style={checkIn.dogHeaderName}>{dogName}</Text>
-            {(lastCheckInAt || normalDaysThisMonth > 0) ? (
-              <Text style={checkIn.dogHeaderStatus}>
-                {[
-                  lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
-                  normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
-                ].filter(Boolean).join(' · ')}
-              </Text>
-            ) : null}
+            <View style={{ height: 18 }}>
+              {statsLoaded && (lastCheckInAt || normalDaysThisMonth > 0) ? (
+                <Text style={checkIn.dogHeaderStatus}>
+                  {[
+                    lastCheckInAt ? `Last check-in: ${timeAgo(lastCheckInAt)}` : null,
+                    normalDaysThisMonth > 0 ? `${normalDaysThisMonth} normal ${normalDaysThisMonth === 1 ? 'day' : 'days'} this month` : null,
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              ) : null}
+            </View>
           </TouchableOpacity>
         ) : null}
 
         <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName || 'there'}.</Text>
         <Text style={checkIn.question}>How is {dogName || 'your dog'} doing today?</Text>
 
-        {lastCheckInAt === null && dogName ? (
-          <Text style={checkIn.firstCheckInHint}>Daily check-ins help Know Better learn {dogName}'s normal patterns and notice changes over time.</Text>
-        ) : null}
+        <View style={{ minHeight: 44 }}>
+          {statsLoaded && lastCheckInAt === null && dogName ? (
+            <Text style={checkIn.firstCheckInHint}>Daily check-ins help Know Better learn {dogName}'s normal patterns and notice changes over time.</Text>
+          ) : null}
+        </View>
 
         <>
             <View style={checkIn.modeToggle}>
@@ -5147,6 +5148,7 @@ const checkIn = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingBottom: 16,
+    width: '100%',
   },
   greeting: {
     fontSize: 28,
