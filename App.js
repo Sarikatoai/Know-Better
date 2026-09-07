@@ -67,7 +67,7 @@ try {
   });
 } catch (e) {
   console.log('[Langfuse] init failed:', e?.message);
-  langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ generation: () => ({ end: () => {} }), end: () => {} }) };
+  langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ id: 'stub', generation: () => ({ end: () => {} }), span: () => ({ end: () => {} }), end: () => {} }) };
 }
 
 // ─── Analytics event logger ──────────────────────────────────────────────────
@@ -1587,7 +1587,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
     }
   };
 
-  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0, alertId = null) => {
+  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0, alertId = null, parentTrace = null) => {
     setIsClaudeLoading(true);
     setClaudeResponse('');
     setActiveAlertLevel(null);
@@ -1607,7 +1607,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       systemPrompt = 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
     }
     const traceLabel = alertLevel ? `Claude - Alert Level ${alertLevel}` : 'Claude - Check-in Response';
-    const trace = langfuse.trace({
+    const trace = parentTrace ?? langfuse.trace({
       name: traceLabel,
       userId: userIdRef.current ?? undefined,
       metadata: { dog_id: dogIdRef.current, check_in_id: checkInId, classification, alert_level: alertLevel },
@@ -1618,57 +1618,124 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       input: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcriptionText }],
       startTime: new Date(),
     });
+    let animInterval = null;
     try {
-      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
-        body: {
-          model: 'claude-sonnet-4-5',
-          max_tokens: 256,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: transcriptionText }],
-        },
-      });
-      if (claudeError) throw claudeError;
-      console.log('[Claude] result:', JSON.stringify(data));
-      if (data.content?.[0]?.text) {
-        const responseText = data.content[0].text;
-        generation.end({
-          output: responseText,
-          usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
-          endTime: new Date(),
-        });
-        setClaudeResponse(responseText);
-        setActiveAlertLevel(alertLevel);
-        setActiveAlertId(alertId);
-        saveResponse(checkInId, responseText);
-        if ((alertLevel === 2 || alertLevel === 3) && alertId) {
-          const now = new Date();
-          supabase.from('scheduled_notifications').insert([
-            {
-              user_id: userIdRef.current,
-              dog_id: dogIdRef.current,
-              alert_id: alertId,
-              alert_level: alertLevel,
-              notification_type: 'escalation_reminder',
-              scheduled_for: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
-            },
-            {
-              user_id: userIdRef.current,
-              dog_id: dogIdRef.current,
-              alert_id: alertId,
-              alert_level: alertLevel,
-              notification_type: 'vet_followup',
-              scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-            },
-          ]);
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/claude-proxy`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+            'apikey': process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-5',
+            max_tokens: 256,
+            stream: true,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: transcriptionText }],
+          }),
+        }
+      );
+      if (!response.ok) throw new Error(`Claude proxy error: ${response.status}`);
+
+      let fullText = '';
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let displayIndex = 0;
+      let streamDone = false;
+      let loadingCleared = false;
+      let cursorOn = true;
+      let cursorTick = 0;
+
+      animInterval = setInterval(() => {
+        if (displayIndex < fullText.length) {
+          displayIndex = Math.min(displayIndex + 3, fullText.length);
+          if (!loadingCleared) { setIsClaudeLoading(false); loadingCleared = true; }
+          setClaudeResponse(fullText.slice(0, displayIndex) + '▋');
+          cursorTick = 0;
+        } else if (streamDone) {
+          clearInterval(animInterval);
+          animInterval = null;
+          setClaudeResponse(fullText); // remove cursor
+          if (fullText) {
+            generation.end({
+              output: fullText,
+              usage: { input: inputTokens, output: outputTokens },
+              endTime: new Date(),
+            });
+            setActiveAlertLevel(alertLevel);
+            setActiveAlertId(alertId);
+            saveResponse(checkInId, fullText);
+            if ((alertLevel === 2 || alertLevel === 3) && alertId) {
+              const now = new Date();
+              supabase.from('scheduled_notifications').insert([
+                {
+                  user_id: userIdRef.current,
+                  dog_id: dogIdRef.current,
+                  alert_id: alertId,
+                  alert_level: alertLevel,
+                  notification_type: 'escalation_reminder',
+                  scheduled_for: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
+                },
+                {
+                  user_id: userIdRef.current,
+                  dog_id: dogIdRef.current,
+                  alert_id: alertId,
+                  alert_level: alertLevel,
+                  notification_type: 'vet_followup',
+                  scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+                },
+              ]);
+            }
+            try { langfuse.flush(); } catch (e) {}
+          }
+        } else {
+          // Caught up with stream — blink cursor while waiting for more tokens
+          cursorTick++;
+          if (cursorTick >= 25) { // 25 × 20ms = 500ms blink period
+            cursorOn = !cursorOn;
+            cursorTick = 0;
+            setClaudeResponse(fullText.slice(0, displayIndex) + (cursorOn ? '▋' : ''));
+          }
+        }
+      }, 20);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6).trim());
+            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+              fullText += event.delta.text;
+            } else if (event.type === 'message_start') {
+              inputTokens = event.message?.usage?.input_tokens ?? 0;
+            } else if (event.type === 'message_delta') {
+              outputTokens = event.usage?.output_tokens ?? 0;
+            }
+          } catch {}
         }
       }
+      streamDone = true;
     } catch (err) {
+      if (animInterval) { clearInterval(animInterval); animInterval = null; }
       generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
       Sentry.captureException(err);
-      console.log('[Claude] error:', err);
+      console.log('[Claude] streaming error:', err);
     } finally {
       setIsClaudeLoading(false);
-      try { langfuse.flush(); } catch (e) {}
+      if (!animInterval) try { langfuse.flush(); } catch (e) {}
     }
   };
 
@@ -1735,10 +1802,11 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
     }
   };
 
-  const extractSignals = async (transcriptionText, checkInId, dogId) => {
+  const extractSignals = async (transcriptionText, checkInId, dogId, traceId = null) => {
     const generation = langfuse.generation({
       name: 'Claude - Signal Extraction',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-haiku-4-5',
+      traceId: traceId ?? undefined,
       userId: userIdRef.current ?? undefined,
       metadata: { dog_id: dogId, check_in_id: checkInId },
       input: transcriptionText,
@@ -1747,7 +1815,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
     try {
       const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
         body: {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 256,
           system: `You are analyzing a dog owner's check-in about their dog. Extract the state of each behavioral dimension mentioned. Return a JSON object only — no other text. Use these exact keys and values:
 appetite: normal, low, skipped, or null (if not mentioned)
@@ -1786,10 +1854,11 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
     }
   };
 
-  const classifyCheckIn = async (transcriptionText) => {
+  const classifyCheckIn = async (transcriptionText, traceId = null) => {
     const generation = langfuse.generation({
       name: 'Claude - Classification',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-haiku-4-5',
+      traceId: traceId ?? undefined,
       userId: userIdRef.current ?? undefined,
       metadata: { dog_id: dogIdRef.current },
       input: transcriptionText,
@@ -1798,7 +1867,7 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
     try {
       const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
         body: {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 16,
           system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify the text into exactly one of these four categories:
 NORMAL — the owner describes routine healthy dog behavior. Examples: dog ate their meal, played outside, did their business, drank water, had good energy, seemed happy.
@@ -1913,30 +1982,49 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         mediaRecorderRef.current = null;
         mediaChunksRef.current = [];
 
+        const checkInTrace = langfuse.trace({
+          name: 'Check-in Pipeline',
+          userId: userIdRef.current ?? undefined,
+          metadata: { dog_id: dogIdRef.current, check_in_type: 'voice' },
+        });
+        const spanWhisper = checkInTrace.span({ name: 'whisper', startTime: new Date() });
         const audioBase64 = await blobToBase64(blob);
         const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
           body: { audio_base64: audioBase64, mime_type: blob.type, language: 'en' },
         });
         if (transcribeError) throw transcribeError;
         console.log('[Whisper] result:', JSON.stringify(result));
+        spanWhisper.end({ endTime: new Date() });
         if (result.text) {
           setTranscription(result.text);
-          const classification = await classifyCheckIn(result.text);
-          const treatmentActive = await getActiveTreatment(dogIdRef.current);
+          const [classification, treatmentActive] = await Promise.all([
+            classifyCheckIn(result.text, checkInTrace.id),
+            getActiveTreatment(dogIdRef.current),
+          ]);
+          const spanSave = checkInTrace.span({ name: 'save-checkin', startTime: new Date() });
           const checkInId = await saveCheckIn(blob, blob.type, result.text, classification, treatmentActive);
+          spanSave.end({ endTime: new Date() });
           if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {
             extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
           }
           if (classification === 'concerning' || classification === 'health_event') {
-            await extractSignals(result.text, checkInId, dogIdRef.current);
+            await extractSignals(result.text, checkInId, dogIdRef.current, checkInTrace.id);
           }
-          await calculateBaseline(dogIdRef.current);
-          if (classification !== 'health_event') {
-            await checkTreatmentWindowClose(dogIdRef.current);
-          }
+          const spanBaseline = checkInTrace.span({ name: 'calculate-baseline', startTime: new Date() });
+          const spanTreatment = classification !== 'health_event'
+            ? checkInTrace.span({ name: 'treatment-window-check', startTime: new Date() })
+            : null;
+          await Promise.all([
+            calculateBaseline(dogIdRef.current).then(() => spanBaseline.end({ endTime: new Date() })),
+            spanTreatment
+              ? checkTreatmentWindowClose(dogIdRef.current).then(() => spanTreatment.end({ endTime: new Date() }))
+              : Promise.resolve(),
+          ]);
+          const spanDeviation = checkInTrace.span({ name: 'detect-deviation', startTime: new Date() });
           const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
-          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
+          spanDeviation.end({ endTime: new Date() });
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace);
         }
       } catch (err) {
         Sentry.captureException(err);
@@ -1960,6 +2048,12 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         console.log('[Audio] blob MIME type: audio/m4a (native)');
         console.log('[Audio] recording duration (seconds):', durationSecs);
 
+        const checkInTrace = langfuse.trace({
+          name: 'Check-in Pipeline',
+          userId: userIdRef.current ?? undefined,
+          metadata: { dog_id: dogIdRef.current, check_in_type: 'voice' },
+        });
+        const spanWhisper = checkInTrace.span({ name: 'whisper', startTime: new Date() });
         const nativeBlob = await fetch(uri).then(r => r.blob());
         const audioBase64 = await blobToBase64(nativeBlob);
         const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
@@ -1967,24 +2061,37 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         });
         if (transcribeError) throw transcribeError;
         console.log('[Whisper] result:', JSON.stringify(result));
+        spanWhisper.end({ endTime: new Date() });
         if (result.text) {
           setTranscription(result.text);
-          const classification = await classifyCheckIn(result.text);
-          const treatmentActive = await getActiveTreatment(dogIdRef.current);
+          const [classification, treatmentActive] = await Promise.all([
+            classifyCheckIn(result.text, checkInTrace.id),
+            getActiveTreatment(dogIdRef.current),
+          ]);
+          const spanSave = checkInTrace.span({ name: 'save-checkin', startTime: new Date() });
           const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification, treatmentActive);
+          spanSave.end({ endTime: new Date() });
           if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {
             extractHealthEvent(result.text, checkInId, dogIdRef.current, familyMemberIdRef.current);
           }
           if (classification === 'concerning' || classification === 'health_event') {
-            await extractSignals(result.text, checkInId, dogIdRef.current);
+            await extractSignals(result.text, checkInId, dogIdRef.current, checkInTrace.id);
           }
-          await calculateBaseline(dogIdRef.current);
-          if (classification !== 'health_event') {
-            await checkTreatmentWindowClose(dogIdRef.current);
-          }
+          const spanBaseline = checkInTrace.span({ name: 'calculate-baseline', startTime: new Date() });
+          const spanTreatment = classification !== 'health_event'
+            ? checkInTrace.span({ name: 'treatment-window-check', startTime: new Date() })
+            : null;
+          await Promise.all([
+            calculateBaseline(dogIdRef.current).then(() => spanBaseline.end({ endTime: new Date() })),
+            spanTreatment
+              ? checkTreatmentWindowClose(dogIdRef.current).then(() => spanTreatment.end({ endTime: new Date() }))
+              : Promise.resolve(),
+          ]);
+          const spanDeviation = checkInTrace.span({ name: 'detect-deviation', startTime: new Date() });
           const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
-          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId);
+          spanDeviation.end({ endTime: new Date() });
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace);
         }
       } catch (err) {
         Sentry.captureException(err);
@@ -2009,9 +2116,16 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
+    const checkInTrace = langfuse.trace({
+      name: 'Check-in Pipeline',
+      userId: userId ?? undefined,
+      metadata: { dog_id: dogId, check_in_type: 'text' },
+    });
     try {
-      const classification = await classifyCheckIn(text);
-      const treatmentActive = await getActiveTreatment(dogId);
+      const [classification, treatmentActive] = await Promise.all([
+        classifyCheckIn(text, checkInTrace.id),
+        getActiveTreatment(dogId),
+      ]);
       let checkInId = null;
       if (userId && dogId && familyMemberId) {
         const todayStart = new Date();
@@ -2024,6 +2138,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
           setDailyCount(todayCount ?? 0);
         } else {
+          const spanSave = checkInTrace.span({ name: 'save-checkin', startTime: new Date() });
           const { data: checkInData, error: checkInError } = await supabase
             .from('check_ins')
             .insert({
@@ -2037,6 +2152,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             })
             .select('check_in_id')
             .single();
+          spanSave.end({ endTime: new Date() });
           if (!checkInError) {
             checkInId = checkInData.check_in_id;
             setDailyCount(c => c + 1);
@@ -2051,15 +2167,23 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           extractHealthEvent(text, checkInId, dogId, familyMemberId);
         }
         if (classification === 'concerning' || classification === 'health_event') {
-          await extractSignals(text, checkInId, dogId);
+          await extractSignals(text, checkInId, dogId, checkInTrace.id);
         }
-        await calculateBaseline(dogId);
-        if (classification !== 'health_event') {
-          await checkTreatmentWindowClose(dogId);
-        }
+        const spanBaseline = checkInTrace.span({ name: 'calculate-baseline', startTime: new Date() });
+        const spanTreatment = classification !== 'health_event'
+          ? checkInTrace.span({ name: 'treatment-window-check', startTime: new Date() })
+          : null;
+        await Promise.all([
+          calculateBaseline(dogId).then(() => spanBaseline.end({ endTime: new Date() })),
+          spanTreatment
+            ? checkTreatmentWindowClose(dogId).then(() => spanTreatment.end({ endTime: new Date() }))
+            : Promise.resolve(),
+        ]);
       }
+      const spanDeviation = checkInTrace.span({ name: 'detect-deviation', startTime: new Date() });
       const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogId, checkInId, treatmentActive);
-      callClaude(text, checkInId, classification, alertLevel, consecutiveDays, alertId);
+      spanDeviation.end({ endTime: new Date() });
+      callClaude(text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace);
     } catch (err) {
       Sentry.captureException(err);
       console.log('[TextCheckIn] error:', err);
