@@ -1173,20 +1173,6 @@ function CheckInScreen({ navigation, route }) {
       return null;
     }
 
-    // Hard rate limit check (server-side guard)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const { count: todayCount } = await supabase
-      .from('check_ins')
-      .select('check_in_id', { count: 'exact', head: true })
-      .eq('dog_id', dogId)
-      .gte('created_at', todayStart.toISOString());
-    if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
-      console.log('[RateLimit] daily limit reached, blocking save');
-      setDailyCount(todayCount ?? 0);
-      return null;
-    }
-
     try {
       const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : 'webm';
       const path = `${userId}/${dogId}/${Date.now()}.${ext}`;
@@ -2051,38 +2037,27 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       ]);
       let checkInId = null;
       if (userId && dogId && familyMemberId) {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const { count: todayCount } = await supabase
+        const spanSave = checkInTrace.span({ name: 'save-checkin', startTime: new Date() });
+        const { data: checkInData, error: checkInError } = await supabase
           .from('check_ins')
-          .select('check_in_id', { count: 'exact', head: true })
-          .eq('dog_id', dogId)
-          .gte('created_at', todayStart.toISOString());
-        if ((todayCount ?? 0) >= DAILY_CHECKIN_LIMIT) {
-          setDailyCount(todayCount ?? 0);
+          .insert({
+            dog_id: dogId,
+            family_member_id: familyMemberId,
+            check_in_type: getCheckInTypeByTime(),
+            check_in_text: text,
+            transcription_status: 'completed',
+            input_classification: classification,
+            contributed_to_baseline: classification === 'health_event' ? 'partial' : (classification === 'normal' || classification === 'concerning') ? (treatmentActive ? 'partial' : 'yes') : 'no',
+          })
+          .select('check_in_id')
+          .single();
+        spanSave.end({ endTime: new Date() });
+        if (!checkInError) {
+          checkInId = checkInData.check_in_id;
+          setDailyCount(c => c + 1);
+          logAnalyticsEvent(userId, 'check_in_created', { dog_id: dogId, check_in_type: 'text', classification });
         } else {
-          const spanSave = checkInTrace.span({ name: 'save-checkin', startTime: new Date() });
-          const { data: checkInData, error: checkInError } = await supabase
-            .from('check_ins')
-            .insert({
-              dog_id: dogId,
-              family_member_id: familyMemberId,
-              check_in_type: getCheckInTypeByTime(),
-              check_in_text: text,
-              transcription_status: 'completed',
-              input_classification: classification,
-              contributed_to_baseline: classification === 'health_event' ? 'partial' : (classification === 'normal' || classification === 'concerning') ? (treatmentActive ? 'partial' : 'yes') : 'no',
-            })
-            .select('check_in_id')
-            .single();
-          spanSave.end({ endTime: new Date() });
-          if (!checkInError) {
-            checkInId = checkInData.check_in_id;
-            setDailyCount(c => c + 1);
-            logAnalyticsEvent(userId, 'check_in_created', { dog_id: dogId, check_in_type: 'text', classification });
-          } else {
-            console.log('[TextCheckIn] insert error:', checkInError);
-          }
+          console.log('[TextCheckIn] insert error:', checkInError);
         }
       }
       if (checkInId) {
