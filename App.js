@@ -1653,6 +1653,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
       Sentry.captureException(err);
       console.log('[Claude] streaming error:', err);
+      setClaudeResponse('Something went wrong on my end — please try again.');
     } finally {
       setIsClaudeLoading(false);
       if (!animInterval) try { langfuse.flush(); } catch (e) {}
@@ -1949,6 +1950,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       } catch (err) {
         Sentry.captureException(err);
         console.log('[Whisper] error:', err);
+        setClaudeResponse('Something went wrong on my end — please try again.');
       } finally {
         setRecordingState('idle');
       }
@@ -2016,6 +2018,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       } catch (err) {
         Sentry.captureException(err);
         console.log('[Whisper] error:', err);
+        setClaudeResponse('Something went wrong on my end — please try again.');
       } finally {
         setRecordingState('idle');
       }
@@ -2107,6 +2110,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     } catch (err) {
       Sentry.captureException(err);
       console.log('[TextCheckIn] error:', err);
+      setClaudeResponse('Something went wrong on my end — please try again.');
     } finally {
       setRecordingState('idle');
     }
