@@ -2,6 +2,15 @@ import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
+import {
+  localDayKey,
+  isLowSignal,
+  SIGNAL_DIMS,
+  computeBaselineMetrics,
+  computeConsecutiveCombinationDays,
+  computeAlertLevel,
+  computeCombinationAlertLevel,
+} from './lib/patternEngine';
 import { setupPushNotifications } from './lib/notifications';
 import BurgerMenu from './components/BurgerMenu';
 import DogSelectionScreen from './screens/DogSelectionScreen';
@@ -686,19 +695,6 @@ function DogMoodScreen({ navigation, route }) {
 
 const isValidEmail = (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
 
-const SIGNAL_DIMS = ['appetite', 'energy', 'water_intake', 'demeanor', 'vomiting', 'elimination'];
-
-const isLowSignal = (dim, values) => {
-  switch (dim) {
-    case 'appetite':    return values.some(v => v === 'low' || v === 'skipped');
-    case 'energy':      return values.some(v => v === 'low');
-    case 'water_intake':return values.some(v => v === 'low' || v === 'absent');
-    case 'demeanor':    return values.some(v => v === 'low');
-    case 'vomiting':    return values.some(v => v === 'once' || v === 'multiple');
-    case 'elimination': return values.some(v => v === 'irregular' || v === 'absent');
-    default: return false;
-  }
-};
 
 function AccountScreen({ navigation, route }) {
   const dogData = route.params ?? {};
@@ -921,10 +917,6 @@ function CongratulationsScreen({ navigation, route }) {
 
 const DAILY_CHECKIN_LIMIT = 10;
 
-const localDayKey = (dateInput) => {
-  const d = new Date(dateInput);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 
 const getCheckInTypeByTime = () => {
   const hour = new Date().getHours();
@@ -1409,38 +1401,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         .order('created_at', { ascending: false });
       if (error) { console.log('[Baseline] query error:', error); return; }
 
-      // Group check-ins by calendar day
-      const checkInsByDay = {};
-      for (const row of data) {
-        const day = localDayKey(row.created_at);
-        if (!checkInsByDay[day]) checkInsByDay[day] = [];
-        checkInsByDay[day].push(row);
-      }
-
-      // Days sorted newest first
-      const sortedDays = Object.keys(checkInsByDay).sort().reverse();
-
-      const isDayConcerning = (rows) => rows.some(r => r.input_classification === 'concerning' || r.input_classification === 'health_event');
-      const isDayNormal = (rows) => !isDayConcerning(rows) && rows.some(r =>
-        r.input_classification === 'normal' || r.input_classification === 'irrelevant'
-      );
-
-      const normal_days = sortedDays.filter(day => isDayNormal(checkInsByDay[day])).length;
-      const concerning_days = sortedDays.filter(day => isDayConcerning(checkInsByDay[day])).length;
-      const total_days = normal_days + concerning_days;
-      const normal_rate = total_days > 0 ? normal_days / total_days : 0;
-      const concerning_rate = total_days > 0 ? concerning_days / total_days : 0;
-      const last_day_classification = sortedDays.length > 0
-        ? (isDayConcerning(checkInsByDay[sortedDays[0]]) ? 'concerning' : 'normal')
-        : null;
-      const baseline_active = total_days >= 3;
-
-      let consecutive_concerning_days = 0;
-      for (const day of sortedDays) {
-        if (isDayConcerning(checkInsByDay[day])) consecutive_concerning_days++;
-        else break;
-      }
-
+      const metrics = computeBaselineMetrics(data);
       const { combinationFlag, lowSignalCount } = await getDailySummary(dogId);
 
       const { data: signalRows } = await supabase
@@ -1450,33 +1411,10 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         .gte('created_at', since)
         .order('created_at', { ascending: false });
 
-      const signalDayMap = {};
-      for (const row of (signalRows ?? [])) {
-        const day = localDayKey(row.created_at);
-        if (!signalDayMap[day]) signalDayMap[day] = [];
-        signalDayMap[day].push(row);
-      }
-      let consecutive_combination_days = 0;
-      for (let i = 0; i < 7; i++) {
-        const day = localDayKey(new Date(Date.now() - i * 24 * 60 * 60 * 1000));
-        const dayRows = signalDayMap[day] ?? [];
-        const dayLowCount = SIGNAL_DIMS.filter(dim => {
-          const vals = dayRows.map(r => r[dim]).filter(v => v != null && v !== 'null');
-          return isLowSignal(dim, vals);
-        }).length;
-        if (dayLowCount >= 2) consecutive_combination_days++;
-        else break;
-      }
+      const consecutive_combination_days = computeConsecutiveCombinationDays(signalRows ?? []);
 
       const baseline_data = {
-        total_days,
-        normal_days,
-        concerning_days,
-        normal_rate,
-        concerning_rate,
-        consecutive_concerning_days,
-        last_day_classification,
-        baseline_active,
+        ...metrics,
         combination_flag: combinationFlag,
         low_signal_count_today: lowSignalCount,
         consecutive_combination_days,
@@ -1521,37 +1459,19 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
-      // Consecutive concerning days rule (relaxed thresholds during active treatment)
-      // baseline_active requires total_days >= 3, so Level 1/2 only need >= 3 days
       const ccd = b.consecutive_concerning_days ?? 0;
       const totalDays = b.total_days ?? 0;
-      let alertLevel = null;
-      if (treatmentActive) {
-        console.log('[HealthEvent] treatment context active — using relaxed thresholds');
-        if (ccd >= 5) alertLevel = 3;
-        else if (ccd >= 3) alertLevel = 2;
-        else if (ccd >= 2) alertLevel = 1;
-      } else {
-        if      (ccd >= 5 && totalDays >= 5) alertLevel = 3;
-        else if (ccd >= 3 && totalDays >= 3) alertLevel = 2;
-        else if (ccd >= 2 && totalDays >= 3) alertLevel = 1;
-
-        if (alertLevel === null && ccd >= 2) {
-          console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays} days)`);
-        }
-      }
-      console.log('[Deviation] consecutive_concerning_days:', ccd, '| total_days:', totalDays, '→ alertLevel:', alertLevel);
-
-      // Combination rule
       const ccfd = b.consecutive_combination_days ?? 0;
       const lowCount = b.low_signal_count_today ?? 0;
-      let combinationAlertLevel = null;
-      if      (lowCount >= 3 && totalDays >= 3) combinationAlertLevel = 2;
-      else if (ccfd >= 3   && totalDays >= 5)  combinationAlertLevel = 2;
-      else if (ccfd >= 2   && totalDays >= 3)  combinationAlertLevel = 1;
+
+      if (treatmentActive) console.log('[HealthEvent] treatment context active — using relaxed thresholds');
+      const alertLevel = computeAlertLevel(b, treatmentActive);
+      if (alertLevel === null && ccd >= 2 && !treatmentActive) console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays} days)`);
+      console.log('[Deviation] consecutive_concerning_days:', ccd, '| total_days:', totalDays, '→ alertLevel:', alertLevel);
+
+      const combinationAlertLevel = computeCombinationAlertLevel(b);
       console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '| total_days:', totalDays, '→ combinationAlertLevel:', combinationAlertLevel);
 
-      // Final: highest level from either rule
       const finalLevel = Math.max(alertLevel ?? 0, combinationAlertLevel ?? 0) || null;
       let savedAlertId = null;
 
