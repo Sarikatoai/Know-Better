@@ -51,7 +51,7 @@ import {
 try {
   Sentry.init({
     dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
-    environment: 'beta',
+    environment: 'production',
     enableAutoSessionTracking: true,
     debug: __DEV__,
   });
@@ -297,7 +297,7 @@ function WelcomeScreen({ navigation }) {
       <Animated.View style={[welcome.inner, { opacity: fadeAnim }]}>
         {/* Icon */}
         <Animated.View style={[welcome.iconWrap, { transform: [{ scale: scaleAnim }] }]}>
-          <MaterialCommunityIcons name="paw" size={96} color="#FFFFFF" />
+          <MaterialCommunityIcons name="paw" size={80} color="#FFFFFF" />
         </Animated.View>
 
         {/* Copy */}
@@ -369,7 +369,7 @@ function DogNameScreen({ navigation }) {
           disabled={!name.trim()}
           onPress={() => navigation.navigate('DogBreed', { dogName: name.trim() })}
         >
-          <Text style={dogName.buttonText}>Next</Text>
+          <Text style={[dogName.buttonText, { color: name.trim() ? '#FFFFFF' : '#9CA3AF' }]}>Next</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -489,7 +489,7 @@ function DogBreedScreen({ navigation, route }) {
         disabled={!breed.trim() || !sex}
         onPress={() => navigation.navigate('DogAge', { dogName, breed: breed.trim(), sex })}
       >
-        <Text style={dogBreed.buttonText}>Next</Text>
+        <Text style={[dogBreed.buttonText, { color: breed.trim() && sex ? '#FFFFFF' : '#9CA3AF' }]}>Next</Text>
       </TouchableOpacity>
     </KeyboardAvoidingView>
   );
@@ -563,7 +563,7 @@ function DogAgeScreen({ navigation, route }) {
         disabled={!selectedAge}
         onPress={() => navigation.navigate('DogHealth', { dogName, breed, sex, age: selectedAge })}
       >
-        <Text style={dogAge.buttonText}>Next</Text>
+        <Text style={[dogAge.buttonText, { color: selectedAge ? '#FFFFFF' : '#9CA3AF' }]}>Next</Text>
       </TouchableOpacity>
     </View>
   );
@@ -684,7 +684,7 @@ function DogMoodScreen({ navigation, route }) {
           disabled={!selectedMood}
           onPress={() => navigation.navigate('Account', { dogName, breed, sex, age, hasCondition, notes, mood: selectedMood })}
         >
-          <Text style={dogMood.buttonText}>Next</Text>
+          <Text style={[dogMood.buttonText, { color: selectedMood ? '#FFFFFF' : '#9CA3AF' }]}>Next</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -781,7 +781,7 @@ function AccountScreen({ navigation, route }) {
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
         >
-          <Text style={account.buttonText}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
+          <Text style={[account.buttonText, { color: canSubmit && !isLoading ? '#FFFFFF' : '#9CA3AF' }]}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -849,7 +849,7 @@ function SignInScreen({ navigation }) {
           disabled={!canSubmit || isLoading}
           onPress={handleSendLink}
         >
-          <Text style={signIn.buttonText}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
+          <Text style={[signIn.buttonText, { color: canSubmit && !isLoading ? '#FFFFFF' : '#9CA3AF' }]}>{isLoading ? 'Sending…' : 'Send my code'}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -863,30 +863,22 @@ function CongratulationsScreen({ navigation, route }) {
 
   return (
     <View style={congrats.container}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
 
-      {/* Hero: flex:1 + space-between mirrors Screen 1's content block exactly,
-          with mic/sample anchored to the bottom of that same space */}
       <View style={congrats.hero}>
-        <View style={congrats.heroTop}>
-          <MaterialCommunityIcons name="paw" size={80} color="#FFFFFF" />
-          <Text style={congrats.headline}>You're all set, {userName}.</Text>
-          <Text style={congrats.subtext}>
-            I can't wait to hear about {dogName}'s day.
-          </Text>
-        </View>
-
-        <View style={congrats.heroBottom}>
-          <Text style={congrats.mic}>🎙️</Text>
+        <MaterialCommunityIcons name="paw" size={80} color="#0F6E56" />
+        <Text style={congrats.headline}>You're all set, {userName}.</Text>
+        <Text style={congrats.subtext}>
+          I can't wait to hear about {dogName}'s day.
+        </Text>
+        <View style={congrats.sampleBlock}>
+          <MaterialCommunityIcons name="microphone" size={24} color="#9CA3AF" />
           <Text style={congrats.sample}>
             "{dogName} went out, ate breakfast, lots of energy this morning."
           </Text>
         </View>
-      </View>
-
-      <View style={congrats.footer}>
         <TouchableOpacity
-          style={congrats.button}
+          style={[congrats.button, { marginTop: 12 }]}
           activeOpacity={0.85}
           onPress={async () => {
             const { data: { session } } = await supabase.auth.getSession();
@@ -1007,7 +999,6 @@ function CheckInScreen({ navigation, route }) {
         const { token } = await setupPushNotifications();
         if (token) {
           await supabase.from('users').update({ push_token: token }).eq('user_id', userId);
-          console.log('[Notifications] push_token saved to users table');
         }
       }
 
@@ -1039,7 +1030,6 @@ function CheckInScreen({ navigation, route }) {
       setStatsLoaded(true);
       const familyMemberId = familyRes.data?.family_member_id;
       if (familyMemberId) familyMemberIdRef.current = familyMemberId;
-      console.log('[Init] IDs loaded — userId:', userId, 'dogId:', dogId, 'familyMemberId:', familyMemberId);
     };
     init();
 
@@ -1167,7 +1157,6 @@ function CheckInScreen({ navigation, route }) {
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
-    console.log('[CheckIn] saveCheckIn called — dog_id:', dogId, '| treatmentActive:', treatmentActive, '| classification:', inputClassification);
     if (!userId || !dogId || !familyMemberId) {
       console.log('[CheckIn] missing IDs, skipping save:', { userId, dogId, familyMemberId });
       return null;
@@ -1185,7 +1174,6 @@ function CheckInScreen({ navigation, route }) {
       }
       const { data: urlData } = supabase.storage.from('checkins').getPublicUrl(path);
       const audioUrl = urlData?.publicUrl;
-      console.log('[CheckIn] audio uploaded:', audioUrl);
 
       const { data: checkInData, error: checkInError } = await supabase
         .from('check_ins')
@@ -1206,7 +1194,6 @@ function CheckInScreen({ navigation, route }) {
         console.log('[CheckIn] insert error:', checkInError);
         return null;
       }
-      console.log('[CheckIn] saved, check_in_id:', checkInData.check_in_id);
       setDailyCount(c => c + 1);
       return checkInData.check_in_id;
     } catch (err) {
@@ -1228,7 +1215,6 @@ function CheckInScreen({ navigation, route }) {
         was_alert: false,
       });
       if (error) console.log('[Response] insert error:', error);
-      else console.log('[Response] saved');
     } catch (err) {
       console.log('[Response] error:', err);
     }
@@ -1236,17 +1222,14 @@ function CheckInScreen({ navigation, route }) {
 
   const getActiveTreatment = async (dogId) => {
     try {
-      console.log('[HealthEvent] getActiveTreatment — querying dog_id:', dogId);
       const { data, error } = await supabase
         .from('health_events')
         .select('health_event_id, treatment_active')
         .eq('dog_id', dogId)
         .eq('treatment_active', true)
         .limit(1);
-      console.log('[HealthEvent] getActiveTreatment — raw response: data:', JSON.stringify(data), '| error:', JSON.stringify(error));
       if (error) { console.log('[HealthEvent] getActiveTreatment error:', error); return false; }
       const result = !!(data && data.length > 0);
-      console.log('[HealthEvent] getActiveTreatment — returning:', result);
       return result;
     } catch (err) {
       console.log('[HealthEvent] getActiveTreatment error:', err);
@@ -1283,8 +1266,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
         endTime: new Date(),
       });
-      console.log('[HealthEvent] extracted:', JSON.stringify(extracted));
-
       const today = localDayKey(new Date());
       const { error } = await supabase.from('health_events').insert({
         dog_id: dogId,
@@ -1297,7 +1278,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         pattern_engine_context: { reason: 'health event detected', classification: 'health_event' },
       });
       if (error) console.log('[HealthEvent] insert error:', error);
-      else console.log('[HealthEvent] saved:', extracted.event_title);
     } catch (err) {
       generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
       Sentry.captureException(err);
@@ -1344,7 +1324,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         .eq('dog_id', dogId)
         .eq('treatment_active', true);
       if (error) console.log('[HealthEvent] close window error:', error);
-      else console.log('[HealthEvent] two consecutive normal days — closing treatment window');
     } catch (err) {
       console.log('[HealthEvent] checkTreatmentWindowClose error:', err);
     }
@@ -1367,7 +1346,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         return isLowSignal(dim, values);
       });
       const combinationFlag = lowSignals.length >= 2;
-      console.log('[Combination] signals low today:', lowSignals, '— combination_flag:', combinationFlag);
       return { lowSignals, combinationFlag, lowSignalCount: lowSignals.length };
     } catch (err) {
       console.log('[DailySummary] error:', err);
@@ -1410,7 +1388,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         .from('baselines')
         .upsert({ dog_id: dogId, baseline_data }, { onConflict: 'dog_id' });
       if (upsertError) console.log('[Baseline] upsert error:', upsertError);
-      else console.log('[Baseline] calculated and saved:', JSON.stringify(baseline_data));
     } catch (err) {
       console.log('[Baseline] error:', err);
     }
@@ -1427,7 +1404,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const b = data?.baseline_data;
       if (!b?.baseline_active) {
-        console.log('[Deviation] skipped — baseline not active yet (total_days:', b?.total_days, ')');
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
@@ -1441,7 +1417,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         .gte('created_at', todayStart.toISOString())
         .limit(1);
       if (todayAlerts && todayAlerts.length > 0) {
-        console.log('[Deviation] suppressed — alert already fired today');
         return { alertLevel: null, consecutiveDays: 0 };
       }
 
@@ -1450,13 +1425,9 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       const ccfd = b.consecutive_combination_days ?? 0;
       const lowCount = b.low_signal_count_today ?? 0;
 
-      if (treatmentActive) console.log('[HealthEvent] treatment context active — using relaxed thresholds');
       const alertLevel = computeAlertLevel(b, treatmentActive);
-      if (alertLevel === null && ccd >= 2 && !treatmentActive) console.log(`[Deviation] Insufficient baseline data for alerts (${totalDays} days)`);
-      console.log('[Deviation] consecutive_concerning_days:', ccd, '| total_days:', totalDays, '→ alertLevel:', alertLevel);
 
       const combinationAlertLevel = computeCombinationAlertLevel(b);
-      console.log('[Deviation] consecutive_combination_days:', ccfd, '| low_signal_count_today:', lowCount, '| total_days:', totalDays, '→ combinationAlertLevel:', combinationAlertLevel);
 
       const finalLevel = Math.max(alertLevel ?? 0, combinationAlertLevel ?? 0) || null;
       let savedAlertId = null;
@@ -1479,7 +1450,6 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         }).select('alert_id').single();
         if (alertError) console.log('[Deviation] alert insert error:', alertError);
         else {
-          console.log('[Deviation] alert saved — level:', finalLevel, '|', alert_trigger_reason);
           savedAlertId = alertData?.alert_id ?? null;
           logAnalyticsEvent(userIdRef.current, 'alert_fired', { dog_id: dogId, alert_level: finalLevel, trigger_reason: alert_trigger_reason });
         }
@@ -1744,8 +1714,6 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
         usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
         endTime: new Date(),
       });
-      console.log('[Signals] extracted:', JSON.stringify(signals));
-
       const { error } = await supabase.from('signals').insert({
         check_in_id: checkInId,
         dog_id: dogId,
@@ -1753,7 +1721,6 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
         raw_signals_response: rawText,
       });
       if (error) console.log('[Signals] insert error:', error);
-      else console.log('[Signals] saved');
     } catch (err) {
       generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
       Sentry.captureException(err);
@@ -1794,7 +1761,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
         endTime: new Date(),
       });
-      console.log('[Classify] result:', classification);
       try { langfuse.flush(); } catch (e) {}
       return classification;
     } catch (err) {
@@ -1809,20 +1775,16 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     if (Platform.OS === 'web') {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        console.log('[Audio] mic stream obtained, tracks:', stream.getAudioTracks().map(t => t.label));
         const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
           ? 'audio/webm;codecs=opus'
           : 'audio/webm';
         const mediaRecorder = new MediaRecorder(stream, { mimeType });
         mediaChunksRef.current = [];
         mediaRecorder.ondataavailable = (e) => {
-          console.log('[Audio] ondataavailable fired, chunk size:', e.data.size, 'bytes');
           if (e.data.size > 0) mediaChunksRef.current.push(e.data);
         };
         mediaRecorderRef.current = mediaRecorder;
-        console.log('[Audio] MediaRecorder state before start:', mediaRecorder.state);
         mediaRecorder.start(100);
-        console.log('[Audio] MediaRecorder state after start:', mediaRecorder.state);
         recordingStartRef.current = Date.now();
         setRecordingState('recording');
         autoStopRef.current = setTimeout(() => stopAndTranscribe(), 60000);
@@ -1858,7 +1820,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     }
 
     const durationSecs = ((Date.now() - (recordingStartRef.current ?? Date.now())) / 1000).toFixed(1);
-    console.log('[Audio] recording duration:', durationSecs, 'seconds');
 
     if (parseFloat(durationSecs) < 2) {
       setTranscription('Hold the mic button while speaking');
@@ -1880,11 +1841,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         });
 
         const chunks = mediaChunksRef.current;
-        console.log('[Audio] total chunks collected:', chunks.length);
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-        console.log('[Audio] blob size (bytes):', blob.size, '— expected 50000+ for real voice, <1000 for silent/empty');
-        console.log('[Audio] blob MIME type:', blob.type);
-        console.log('[Audio] recording duration (seconds):', durationSecs);
 
         mediaRecorderRef.current = null;
         mediaChunksRef.current = [];
@@ -1900,7 +1857,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           body: { audio_base64: audioBase64, mime_type: blob.type, language: 'en' },
         });
         if (transcribeError) throw transcribeError;
-        console.log('[Whisper] result:', JSON.stringify(result));
         spanWhisper.end({ endTime: new Date() });
         if (result.text) {
           setTranscription(result.text);
@@ -1949,12 +1905,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
         const uri = recording.getURI();
         recordingRef.current = null;
-        console.log('[Audio] recording URI:', uri);
 
         if (!uri) { setRecordingState('idle'); return; }
-
-        console.log('[Audio] blob MIME type: audio/m4a (native)');
-        console.log('[Audio] recording duration (seconds):', durationSecs);
 
         const checkInTrace = langfuse.trace({
           name: 'Check-in Pipeline',
@@ -1968,7 +1920,6 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           body: { audio_base64: audioBase64, mime_type: 'audio/m4a', language: 'en' },
         });
         if (transcribeError) throw transcribeError;
-        console.log('[Whisper] result:', JSON.stringify(result));
         spanWhisper.end({ endTime: new Date() });
         if (result.text) {
           setTranscription(result.text);
@@ -2639,7 +2590,6 @@ const generateVetReport = async (dogId, year, month) => {
     console.log('[VetReport] upsert error:', error);
     return { report_id: null, dog_id: dogId, period_start, period_end, overall_status, summary_data, generated_at: new Date().toISOString() };
   }
-  console.log('[VetReport] generated and saved — overall_status:', overall_status);
   return inserted;
 };
 
@@ -3838,27 +3788,11 @@ const saveOnboardingData = async (session, stored) => {
   const userId = session.user.id;
   const email = session.user.email;
 
-  console.log('[DEBUG] saveOnboardingData called');
-  console.log('[DEBUG] auth user:', JSON.stringify(session.user, null, 2));
-  console.log('[DEBUG] onboarding data from AsyncStorage:', JSON.stringify({
-    userName: stored.onboarding_userName,
-    dogName: stored.onboarding_dogName,
-    breed: stored.onboarding_breed,
-    sex: stored.onboarding_sex,
-    age: stored.onboarding_age,
-    hasCondition: stored.onboarding_hasCondition,
-    notes: stored.onboarding_notes,
-    mood: stored.onboarding_mood,
-    date_of_birth_computed: ageToDOB(stored.onboarding_age),
-  }, null, 2));
-
-  console.log('[DEBUG] upserting users table...');
   const { data: userData, error: userError } = await supabase.from('users').upsert({
     user_id: userId,
     first_name: stored.onboarding_userName,
     email,
   }).select();
-  console.log('[DEBUG] users upsert response:', JSON.stringify({ data: userData, error: userError }, null, 2));
   if (userError) throw userError;
 
   const sexDb = (stored.onboarding_sex ?? '').toLowerCase();
@@ -3869,7 +3803,6 @@ const saveOnboardingData = async (session, stored) => {
     moodDisplay.includes('a little off') ? 'a_little_off' :
     'not_sure';
 
-  console.log('[DEBUG] inserting dogs table...');
   const { data: dog, error: dogError } = await supabase
     .from('dogs')
     .insert({
@@ -3886,10 +3819,8 @@ const saveOnboardingData = async (session, stored) => {
     })
     .select('dog_id')
     .single();
-  console.log('[DEBUG] dogs insert response:', JSON.stringify({ data: dog, error: dogError }, null, 2));
   if (dogError) throw dogError;
 
-  console.log('[DEBUG] inserting family_members table...');
   const { data: memberData, error: memberError } = await supabase.from('family_members').insert({
     owner_id: userId,
     member_user_id: userId,
@@ -3899,40 +3830,34 @@ const saveOnboardingData = async (session, stored) => {
     can_view: true,
     can_manage: true,
   }).select();
-  console.log('[DEBUG] family_members insert response:', JSON.stringify({ data: memberData, error: memberError }, null, 2));
   if (memberError) throw memberError;
-
-  console.log('[DEBUG] saveOnboardingData completed successfully');
 };
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function App() {
   const navigationRef = useNavigationContainerRef();
+  let savingOnboarding = false;
 
   useEffect(() => {
     const handleDeepLink = async (url) => {
       if (!url) return;
-      console.log('[DeepLink] URL received:', url);
 
       // Supabase puts tokens in the hash fragment on web, query string on some native flows
       const hashPart = url.split('#')[1];
       const queryPart = url.split('?')[1]?.split('#')[0];
       const fragment = hashPart || queryPart;
       if (!fragment) {
-        console.log('[DeepLink] no token fragment found in URL');
         return;
       }
 
       const params = new URLSearchParams(fragment);
       const access_token = params.get('access_token');
       const refresh_token = params.get('refresh_token');
-      console.log('[DeepLink] access_token:', access_token ? 'present' : 'missing', '| refresh_token:', refresh_token ? 'present' : 'missing');
 
       if (access_token && refresh_token) {
         const { error } = await supabase.auth.setSession({ access_token, refresh_token });
         if (error) console.log('[DeepLink] setSession error:', error.message);
-        else console.log('[DeepLink] setSession success — SIGNED_IN will handle navigation');
       }
     };
 
@@ -3953,8 +3878,6 @@ function App() {
     // Single source of truth for auth-driven navigation
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('[Auth] event:', event, '| session:', session ? 'exists' : 'null');
-
         if (event === 'SIGNED_OUT') {
           navigateWhenReady([{ name: 'Welcome' }]);
           return;
@@ -4000,13 +3923,11 @@ function App() {
         }
 
         if (event === 'SIGNED_IN' && session) {
-          console.log('[DEBUG] SIGNED_IN — querying dogs for owner_id:', session.user.id);
           const [{ data: dogs }, { data: siUserData }] = await Promise.all([
             supabase.from('dogs').select('dog_id, dog_name, profile_photo_url').eq('owner_id', session.user.id),
             supabase.from('users').select('first_name').eq('user_id', session.user.id).single(),
           ]);
           const siUserName = siUserData?.first_name ?? '';
-          console.log('[DEBUG] dogs query result:', JSON.stringify(dogs));
 
           if (dogs && dogs.length > 0) {
             if (dogs.length === 1) {
@@ -4040,13 +3961,16 @@ function App() {
             }]);
 
             logAnalyticsEvent(session.user.id, 'user_signup', { email: session.user.email });
-            saveOnboardingData(session, stored).catch((err) => {
-              console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
-              Alert.alert(
-                'Sync failed',
-                "Your account was created but we couldn't save your dog's info. Please try again later."
-              );
-            });
+            if (!savingOnboarding) {
+              savingOnboarding = true;
+              saveOnboardingData(session, stored).catch((err) => {
+                console.log('[DEBUG] saveOnboardingData threw:', err?.message ?? err);
+                Alert.alert(
+                  'Sync failed',
+                  "Your account was created but we couldn't save your dog's info. Please try again later."
+                );
+              }).finally(() => { savingOnboarding = false; });
+            }
           }
         }
       }
@@ -4208,7 +4132,7 @@ function OtpScreen({ navigation, route }) {
           disabled={!canSubmit || isVerifying}
           onPress={handleVerify}
         >
-          <Text style={otpScreen.buttonText}>{isVerifying ? 'Verifying…' : 'Verify code'}</Text>
+          <Text style={[otpScreen.buttonText, { color: canSubmit && !isVerifying ? '#FFFFFF' : '#9CA3AF' }]}>{isVerifying ? 'Verifying…' : 'Verify code'}</Text>
         </TouchableOpacity>
 
         <View style={otpScreen.links}>
@@ -4397,9 +4321,6 @@ const dogName = StyleSheet.create({
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.4,
   },
   buttonText: {
     fontSize: 16,
@@ -5039,67 +4960,44 @@ const dogBreed = StyleSheet.create({
 const congrats = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F6E56',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 80,
-    paddingHorizontal: 32,
-  },
-  // flex:1 + space-between means heroTop is centered in the upper portion,
-  // heroBottom sits at the bottom of the same flex block — mirroring Screen 1's layout
-  hero: {
-    flex: 1,
-    width: '100%',
-    position: 'relative',
-  },
-  heroTop: {
-    flex: 1,
-    alignItems: 'center',
+    backgroundColor: '#FAFAF9',
     justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingBottom: 160,
+  },
+  hero: {
+    alignItems: 'center',
     gap: 20,
   },
-  heroBottom: {
-    position: 'absolute',
-    bottom: 32,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    gap: 12,
-  },
-  // Exact match to welcome.title
   headline: {
     fontSize: 28,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontWeight: '700',
+    color: '#1F2937',
     textAlign: 'center',
     letterSpacing: -0.5,
   },
-  // Exact match to welcome.subtitle
   subtext: {
     fontSize: 18,
     fontWeight: '300',
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: '#9CA3AF',
     textAlign: 'center',
     lineHeight: 26,
   },
-  mic: {
-    fontSize: 36,
+  sampleBlock: {
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 8,
   },
   sample: {
     fontSize: 14,
     fontStyle: 'italic',
-    color: 'rgba(255, 255, 255, 0.75)',
+    color: '#9CA3AF',
     textAlign: 'center',
     lineHeight: 22,
-    paddingHorizontal: 8,
-  },
-  footer: {
-    width: '100%',
-    alignItems: 'center',
-    paddingBottom: 40,
   },
   button: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#0F6E56',
     borderRadius: 4,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -5110,8 +5008,8 @@ const congrats = StyleSheet.create({
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#085041',
+    fontWeight: '500',
+    color: '#FFFFFF',
   },
 });
 
