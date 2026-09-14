@@ -359,7 +359,6 @@ function DogNameScreen({ navigation }) {
           placeholderTextColor="#9CA3AF"
           value={name}
           onChangeText={setName}
-          autoFocus
           returnKeyType="done"
         />
 
@@ -1494,125 +1493,61 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       input: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcriptionText }],
       startTime: new Date(),
     });
-    let animInterval = null;
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const accessToken = session?.access_token ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/claude-proxy`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`,
-            'apikey': process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-5',
-            max_tokens: 256,
-            stream: true,
-            system: systemPrompt,
-            messages: [{ role: 'user', content: transcriptionText }],
-          }),
+      const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
+        body: {
+          model: 'claude-sonnet-4-5',
+          max_tokens: 256,
+          stream: false,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: transcriptionText }],
+        },
+      });
+      if (claudeError) throw claudeError;
+      const fullText = data.content?.[0]?.text ?? '';
+      const inputTokens = data.usage?.input_tokens ?? 0;
+      const outputTokens = data.usage?.output_tokens ?? 0;
+      if (fullText) {
+        setClaudeResponse(fullText);
+        generation.end({
+          output: fullText,
+          usage: { input: inputTokens, output: outputTokens },
+          endTime: new Date(),
+        });
+        setActiveAlertLevel(alertLevel);
+        setActiveAlertId(alertId);
+        saveResponse(checkInId, fullText);
+        if ((alertLevel === 2 || alertLevel === 3) && alertId) {
+          const now = new Date();
+          supabase.from('scheduled_notifications').insert([
+            {
+              user_id: userIdRef.current,
+              dog_id: dogIdRef.current,
+              alert_id: alertId,
+              alert_level: alertLevel,
+              notification_type: 'escalation_reminder',
+              scheduled_for: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
+            },
+            {
+              user_id: userIdRef.current,
+              dog_id: dogIdRef.current,
+              alert_id: alertId,
+              alert_level: alertLevel,
+              notification_type: 'vet_followup',
+              scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+            },
+          ]);
         }
-      );
-      if (!response.ok) throw new Error(`Claude proxy error: ${response.status}`);
-
-      let fullText = '';
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let displayIndex = 0;
-      let streamDone = false;
-      let loadingCleared = false;
-      let cursorOn = true;
-      let cursorTick = 0;
-
-      animInterval = setInterval(() => {
-        if (displayIndex < fullText.length) {
-          displayIndex = Math.min(displayIndex + 3, fullText.length);
-          if (!loadingCleared) { setIsClaudeLoading(false); loadingCleared = true; }
-          setClaudeResponse(fullText.slice(0, displayIndex) + '▋');
-          cursorTick = 0;
-        } else if (streamDone) {
-          clearInterval(animInterval);
-          animInterval = null;
-          setClaudeResponse(fullText); // remove cursor
-          if (fullText) {
-            generation.end({
-              output: fullText,
-              usage: { input: inputTokens, output: outputTokens },
-              endTime: new Date(),
-            });
-            setActiveAlertLevel(alertLevel);
-            setActiveAlertId(alertId);
-            saveResponse(checkInId, fullText);
-            if ((alertLevel === 2 || alertLevel === 3) && alertId) {
-              const now = new Date();
-              supabase.from('scheduled_notifications').insert([
-                {
-                  user_id: userIdRef.current,
-                  dog_id: dogIdRef.current,
-                  alert_id: alertId,
-                  alert_level: alertLevel,
-                  notification_type: 'escalation_reminder',
-                  scheduled_for: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
-                },
-                {
-                  user_id: userIdRef.current,
-                  dog_id: dogIdRef.current,
-                  alert_id: alertId,
-                  alert_level: alertLevel,
-                  notification_type: 'vet_followup',
-                  scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-                },
-              ]);
-            }
-            try { langfuse.flush(); } catch (e) {}
-          }
-        } else {
-          // Caught up with stream — blink cursor while waiting for more tokens
-          cursorTick++;
-          if (cursorTick >= 25) { // 25 × 20ms = 500ms blink period
-            cursorOn = !cursorOn;
-            cursorTick = 0;
-            setClaudeResponse(fullText.slice(0, displayIndex) + (cursorOn ? '▋' : ''));
-          }
-        }
-      }, 20);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(line.slice(6).trim());
-            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-              fullText += event.delta.text;
-            } else if (event.type === 'message_start') {
-              inputTokens = event.message?.usage?.input_tokens ?? 0;
-            } else if (event.type === 'message_delta') {
-              outputTokens = event.usage?.output_tokens ?? 0;
-            }
-          } catch {}
-        }
+        try { langfuse.flush(); } catch (e) {}
       }
-      streamDone = true;
     } catch (err) {
-      if (animInterval) { clearInterval(animInterval); animInterval = null; }
       generation.end({ level: 'ERROR', statusMessage: err?.message ?? 'unknown error', endTime: new Date() });
       Sentry.captureException(err);
-      console.log('[Claude] streaming error:', err);
+      console.log('[Claude] error:', err);
       setClaudeResponse('Something went wrong on my end — please try again.');
     } finally {
       setIsClaudeLoading(false);
-      if (!animInterval) try { langfuse.flush(); } catch (e) {}
+      try { langfuse.flush(); } catch (e) {}
     }
   };
 
@@ -2694,7 +2629,7 @@ function ReportScreen({ navigation, route }) {
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn', { dogId, dogName })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
           <Text style={report_.brand}>Know Better</Text>
         </TouchableOpacity>
@@ -2919,7 +2854,7 @@ function ReportHistoryScreen({ navigation, route }) {
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn', { dogId: paramDogId, dogName })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
           <Text style={reportHistory.brand}>Know Better</Text>
         </TouchableOpacity>
@@ -3041,7 +2976,7 @@ function CheckInHistoryScreen({ navigation, route }) {
         <TouchableOpacity onPress={() => setIsMenuOpen(true)} activeOpacity={0.7}>
           <MaterialCommunityIcons name="menu" size={26} color="#0F6E56" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn', { dogId: paramDogId, dogName })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <MaterialCommunityIcons name="paw" size={18} color="#0F6E56" />
           <Text style={ciHistory.brand}>Know Better</Text>
         </TouchableOpacity>
@@ -3406,7 +3341,7 @@ function AlertsHistoryScreen({ navigation, route }) {
           <Text style={ah.title}>Alerts</Text>
           <Text style={ah.subtitle}>Active & past alerts for {dogName || 'your dog'}</Text>
         </View>
-        <TouchableOpacity onPress={() => navigation.navigate('CheckIn')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('CheckIn', { dogId, dogName })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <MaterialCommunityIcons name="paw" size={18} color={T.color.teal} />
           <Text style={ah.brand}>Know Better</Text>
         </TouchableOpacity>
