@@ -8,6 +8,7 @@ import {
   SIGNAL_DIMS,
   computeBaselineMetrics,
   computeConsecutiveCombinationDays,
+  computeSymptomPersistence,
   computeAlertLevel,
   computeCombinationAlertLevel,
 } from './lib/patternEngine';
@@ -122,7 +123,7 @@ const T = {
     green:     '#059669',
   },
   space: { xs: 8, sm: 16, md: 24, lg: 32, xl: 48 },
-  radius: { btn: 4, card: 8, input: 4, modal: 12 },
+  radius: { btn: 100, card: 8, input: 4, modal: 12 },
 };
 
 // ─── Mood data ───────────────────────────────────────────────────────────────
@@ -1369,18 +1370,21 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const { data: signalRows } = await supabase
         .from('signals')
-        .select('appetite, energy, water_intake, demeanor, vomiting, elimination, created_at')
+        .select('appetite, energy, water_intake, demeanor, vomiting, elimination, physical_symptoms, behavioral_changes, created_at')
         .eq('dog_id', dogId)
         .gte('created_at', since)
         .order('created_at', { ascending: false });
 
       const consecutive_combination_days = computeConsecutiveCombinationDays(signalRows ?? []);
+      const { persistent_physical_symptoms, persistent_behavioral_changes } = computeSymptomPersistence(signalRows ?? []);
 
       const baseline_data = {
         ...metrics,
         combination_flag: combinationFlag,
         low_signal_count_today: lowSignalCount,
         consecutive_combination_days,
+        persistent_physical_symptoms,
+        persistent_behavioral_changes,
       };
 
       const { error: upsertError } = await supabase
@@ -1455,31 +1459,140 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       }
 
       const consecutiveDays = (alertLevel ?? 0) >= (combinationAlertLevel ?? 0) ? ccd : ccfd;
-      return { alertLevel: finalLevel, consecutiveDays, alertId: savedAlertId };
+      const persistentSymptoms = [
+        ...(b.persistent_physical_symptoms ?? []),
+        ...(b.persistent_behavioral_changes ?? []),
+      ];
+      return { alertLevel: finalLevel, consecutiveDays, alertId: savedAlertId, persistentSymptoms };
     } catch (err) {
       console.log('[Deviation] error:', err);
       return { alertLevel: null, consecutiveDays: 0, alertId: null };
     }
   };
 
-  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0, alertId = null, parentTrace = null) => {
+  const callClaude = async (transcriptionText, checkInId, classification, alertLevel = null, consecutiveDays = 0, alertId = null, parentTrace = null, persistentSymptoms = []) => {
     setIsClaudeLoading(true);
     setClaudeResponse('');
     setActiveAlertLevel(null);
     const name = dogName || 'your dog';
+    const symptomContext = persistentSymptoms.length > 0
+      ? ` I have specifically noticed ${persistentSymptoms.join(', ')} appearing across multiple days.`
+      : '';
+    const constitution = `You are Know Better, a warm and concise companion for dog owners. You are not a veterinarian and do not diagnose, explain symptoms, identify causes, recommend treatments, or give care advice. Know Better helps owners record everyday observations and notice personalised patterns over time. Use only what the owner has shared. Treat everything they report — including weather, routine changes, or possible explanations — as context to record, not proof of why a behaviour is happening. Never claim that one event caused another.`;
+    const sharedRules = `Do not repeat the owner's words verbatim. Do not offer remedies, next steps, or care advice. Do not ask questions. Do not compliment or praise the owner. Do not open with "I hear you", "It sounds like", or "I can see that". Sound caring, calm, and natural. Keep to 2 sentences maximum.`;
+    const nonAlertPrompt = `You are Know Better, a warm, calm, and concise companion for dog owners.
+
+<role>
+Know Better helps owners record everyday observations and understand each dog's personalized behavior pattern over time. You are not a veterinarian.
+</role>
+
+<boundaries>
+You do not diagnose, name medical conditions, explain symptoms, identify causes, recommend treatments, suggest home remedies, give medication guidance, or provide care advice.
+
+Use only facts explicitly supplied by the owner and verified app data.
+
+Treat all owner-reported details—including weather, routine changes, activities, food, events, and possible explanations—as context to record, not evidence of why a behavior is happening.
+
+Never state, imply, predict, test, or frame one reported detail as a possible cause, trigger, correlation, explanation, or condition for another.
+
+Do not say or imply that a behavior may happen "when," "after," "because of," "with," or "as" a reported context changes.
+
+Do not tell the owner to log, track, watch, monitor, wait, compare, or look for a relationship between observations. Know Better records observations; it does not ask owners to perform analysis.
+</boundaries>
+
+<non_alert_task>
+This is a non-alert observation. There is no verified pattern, baseline deviation, or health-risk conclusion unless it appears explicitly in <verified_app_data>.
+
+Respond as a caring companion who is genuinely paying attention to this specific dog — not like a system logging a report. Acknowledge what the owner shared in a way that feels natural and human, grounded in the specific detail they gave. You may briefly note that building up everyday observations helps clarify what is normal for this individual dog, but only if it fits naturally — do not force it into every response as a formula.
+
+Do not claim or imply a trend, relationship, cause, risk, improvement, safety, or recommendation.
+</non_alert_task>
+
+<examples>
+  <example>
+    <input>
+      Owner message: "Simmy has been scratching more. The weather has been cold."
+
+      Verified app data:
+      - Dog name: Simmy
+      - Response state: concerning
+      - Verified deviation: false
+      - Alert level: none
+    </input>
+
+    <do_not_write>
+      As you continue tracking, it will become clearer whether this happens consistently when temperatures drop.
+    </do_not_write>
+
+    <why_not>
+      This frames colder weather as a possible relationship to investigate. Weather may be recorded as context, but it must not be presented as a suspected cause or correlation.
+    </why_not>
+
+    <ideal_response>
+      Good to know about the scratching — days like this, alongside the weather context, are exactly what help build a picture of what's normal for Simmy over time.
+    </ideal_response>
+  </example>
+
+  <example>
+    <input>
+      Owner message: "Simmy had an active day today."
+
+      Verified app data:
+      - Dog name: Simmy
+      - Response state: normal
+      - Verified deviation: false
+      - Alert level: none
+    </input>
+
+    <do_not_write>
+      I have noted that Simmy had an active day. As you continue recording observations like this, they will help build a fuller picture of what's typical for Simmy.
+    </do_not_write>
+
+    <why_not>
+      This sounds like a filing system, not a companion. It is formulaic, impersonal, and does not engage with the specific observation at all.
+    </why_not>
+
+    <ideal_response>
+      An active day for Simmy — these are just as worth capturing as quieter ones, and they're what helps you understand what's normal for her.
+    </ideal_response>
+  </example>
+</examples>
+
+<style>
+Be caring, plainspoken, calm, and natural.
+Do not ask a question. Do not praise or compliment the owner.
+Do not repeat the owner's message verbatim.
+Do not open with "I hear you," "It sounds like," "I can see that," "I have noted," "I've noted," "I've recorded," "Noted," or "I'll note."
+Do not use clinical language, disclaimers, bullet points, headings, emojis, or quotation marks.
+Do not use the words "baseline," "pattern engine," "deviation," or "alert" — use plain language instead (e.g. "what's normal for [dog name]").
+</style>
+
+<output>
+Return only the owner-facing response. Keep it to one or two sentences.
+</output>
+
+<owner_message>
+${transcriptionText}
+</owner_message>
+
+<verified_app_data>
+- Dog name: ${name}
+- Verified deviation: false
+- Alert level: none
+</verified_app_data>`;
     let systemPrompt;
     if (alertLevel === 3) {
-      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond directly and calmly. Acknowledge what the owner shared. Clearly recommend they contact their vet today. Do not diagnose. Do not alarm. 2 sentences maximum.`;
+      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Lead with a clear, direct recommendation to contact their vet today — briefly note the pattern you have been tracking. Do not repeat what the owner just said. ${sharedRules}`;
     } else if (alertLevel === 2) {
-      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond gently but clearly. Acknowledge what the owner shared. Recommend they mention this pattern to their vet soon — not urgently but within the next day or two. Do not diagnose. Do not alarm. 2 sentences maximum.`;
+      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Note the pattern you have been tracking and suggest they mention it to their vet within the next day or two — not urgent, but worth flagging. Do not repeat what the owner just said. ${sharedRules}`;
     } else if (alertLevel === 1) {
-      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. This is the ${consecutiveDays} consecutive day with concerning observations. Respond calmly and warmly. Acknowledge specifically what the owner shared today. Note that you have noticed this pattern over the past few days and will keep watching. Do not diagnose. Do not alarm. 2 sentences maximum.`;
+      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Lead with the specific pattern you have been tracking — let them know you are watching it alongside them. Do not repeat what the owner just said. ${sharedRules}`;
     } else if (classification === 'concerning') {
-      systemPrompt = `You are Know Better, a caring AI companion for dog owners. You speak in first person singular. The owner just shared this about their dog ${name}: ${transcriptionText}. Acknowledge specifically what they shared. Let them know you heard it and you are paying close attention. Convey warmth and quiet attentiveness — you are watching alongside them. Do not suggest a vet. Do not diagnose. Do not use alarm. Do not use phrases like "keep an eye on" or "monitor closely". 2 sentences maximum.`;
+      systemPrompt = nonAlertPrompt;
     } else if (classification === 'irrelevant') {
-      systemPrompt = `You are Know Better, a caring companion for dog owners. The owner's message does not contain any information about their dog's health or routine. Respond warmly and briefly — acknowledge what they said, then gently invite them to share how ${name} is doing today. Keep it to 1-2 sentences maximum. Do not ask about their personal life.`;
+      systemPrompt = `You are Know Better, a warm companion for dog owners. The owner's message does not contain any information about ${name}'s health or routine. Respond warmly and briefly — acknowledge what they said and let them know you are here when they want to share how ${name} is doing. Keep it to 1-2 sentences. Do not ask a question. Do not ask about their personal life.`;
     } else {
-      systemPrompt = 'You are Know Better, a warm and caring AI companion for dog owners. You speak in first person singular. You are caring, calm, and never clinical. Your job is to acknowledge what the owner shared about their dog, reflect back what you heard specifically, and respond with warmth and reassurance. Keep responses to 2-3 sentences maximum. Never use medical language. Never diagnose. Always end with something warm.';
+      systemPrompt = nonAlertPrompt;
     }
     const traceLabel = alertLevel ? `Claude - Alert Level ${alertLevel}` : 'Claude - Check-in Response';
     const trace = parentTrace ?? langfuse.trace({
@@ -1629,14 +1742,21 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         body: {
           model: 'claude-haiku-4-5',
           max_tokens: 256,
-          system: `You are analyzing a dog owner's check-in about their dog. Extract the state of each behavioral dimension mentioned. Return a JSON object only — no other text. Use these exact keys and values:
+          system: `You are analyzing a dog owner's check-in about their dog. Extract signals and return a JSON object only — no other text.
+
+Physiological dimensions — use these exact keys and values:
 appetite: normal, low, skipped, or null (if not mentioned)
 energy: normal, low, high, or null
 elimination: normal, irregular, absent, or null
 water_intake: normal, low, absent, or null
 demeanor: normal, low, or null
 vomiting: none, once, multiple, or null
-Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", "water_intake": "null", "demeanor": "low", "vomiting": "none"}`,
+
+Physical symptoms — key: physical_symptoms. Extract an array of any present from this list only: limping, scratching, rash, swelling, discharge, coughing. Use [] if none mentioned.
+
+Behavioral changes — key: behavioral_changes. Extract an array of any present from this list only: hiding, aggression, anxiety, restlessness, stopped_normal_activities. Use [] if none mentioned.
+
+Example output: {"appetite": "skipped", "energy": "low", "elimination": null, "water_intake": null, "demeanor": "low", "vomiting": "none", "physical_symptoms": ["limping"], "behavioral_changes": []}`,
           messages: [{ role: 'user', content: transcriptionText }],
         },
       });
@@ -1678,11 +1798,18 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": "null", 
         body: {
           model: 'claude-haiku-4-5',
           max_tokens: 16,
-          system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify the text into exactly one of these four categories:
-NORMAL — the owner describes routine healthy dog behavior. Examples: dog ate their meal, played outside, did their business, drank water, had good energy, seemed happy.
-CONCERNING — the owner mentions something unusual, different from normal, or potentially worrying. Examples: dog skipped a meal, did not drink water, had low energy, did not poop or pee all day, was limping, seemed off.
-HEALTH_EVENT — the owner mentions a significant medical event. Examples: vet visit, surgery, new medication, hospitalization, diagnosis.
-IRRELEVANT — the text contains no useful information about the dog's health or daily routine. Examples: accidental recording, conversation not about the dog, nonsensical content.
+          system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify into exactly one of four categories using the rules below.
+
+NORMAL — classify as NORMAL if the owner describes routine healthy behavior or common variations without severity. This includes: eating, drinking, playing, daily elimination, normal energy, occasional scratching, sleeping more than usual, mild low energy, or a bit tired. Also classify as NORMAL when the owner offers a benign explanation ("probably the weather", "rest is all good", "not sure but everything else is fine") or says things are generally okay.
+
+CONCERNING — classify as CONCERNING only when at least one of these is true: a physical symptom is present (limping, rash, swelling, discharge, bleeding, coughing), OR severity is clearly extreme (won't eat at all, completely lethargic, frantic scratching, hasn't drunk water all day, won't move), OR the owner explicitly expresses worry ("something feels off", "this isn't like him", "I'm concerned").
+
+HEALTH_EVENT — the owner mentions a significant medical event: vet visit, surgery, new medication, hospitalization, diagnosis.
+
+IRRELEVANT — no useful information about the dog's health or routine: accidental recording, conversation not about the dog, nonsensical content.
+
+Key rule: Common behaviors like scratching, low energy, or sleeping more are NORMAL unless paired with a physical symptom, a severity marker, or explicit owner concern.
+
 Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           messages: [{ role: 'user', content: transcriptionText }],
         },
@@ -1820,9 +1947,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               : Promise.resolve(),
           ]);
           const spanDeviation = checkInTrace.span({ name: 'detect-deviation', startTime: new Date() });
-          const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
+          const { alertLevel, consecutiveDays, alertId, persistentSymptoms } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
           spanDeviation.end({ endTime: new Date() });
-          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace);
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace, persistentSymptoms);
         }
       } catch (err) {
         Sentry.captureException(err);
@@ -1883,9 +2010,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               : Promise.resolve(),
           ]);
           const spanDeviation = checkInTrace.span({ name: 'detect-deviation', startTime: new Date() });
-          const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
+          const { alertLevel, consecutiveDays, alertId, persistentSymptoms } = await detectDeviation(dogIdRef.current, checkInId, treatmentActive);
           spanDeviation.end({ endTime: new Date() });
-          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace);
+          callClaude(result.text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace, persistentSymptoms);
         }
       } catch (err) {
         Sentry.captureException(err);
@@ -1965,9 +2092,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         ]);
       }
       const spanDeviation = checkInTrace.span({ name: 'detect-deviation', startTime: new Date() });
-      const { alertLevel, consecutiveDays, alertId } = await detectDeviation(dogId, checkInId, treatmentActive);
+      const { alertLevel, consecutiveDays, alertId, persistentSymptoms } = await detectDeviation(dogId, checkInId, treatmentActive);
       spanDeviation.end({ endTime: new Date() });
-      callClaude(text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace);
+      callClaude(text, checkInId, classification, alertLevel, consecutiveDays, alertId, checkInTrace, persistentSymptoms);
     } catch (err) {
       Sentry.captureException(err);
       console.log('[TextCheckIn] error:', err);
@@ -2046,15 +2173,25 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               <TouchableOpacity
                 style={[checkIn.modeBtn, inputMode === 'voice' && checkIn.modeBtnActive]}
                 onPress={() => { setInputMode('voice'); setInputExpanded(false); }}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
+                <MaterialCommunityIcons
+                  name="microphone"
+                  size={15}
+                  color={inputMode === 'voice' ? '#0F6E56' : '#9CA3AF'}
+                />
                 <Text style={[checkIn.modeBtnText, inputMode === 'voice' && checkIn.modeBtnActiveText]}>Voice</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[checkIn.modeBtn, inputMode === 'type' && checkIn.modeBtnActive]}
                 onPress={() => { setInputMode('type'); setInputExpanded(false); }}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
+                <MaterialCommunityIcons
+                  name="keyboard-outline"
+                  size={15}
+                  color={inputMode === 'type' ? '#0F6E56' : '#9CA3AF'}
+                />
                 <Text style={[checkIn.modeBtnText, inputMode === 'type' && checkIn.modeBtnActiveText]}>Type</Text>
               </TouchableOpacity>
             </View>
@@ -2133,7 +2270,12 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                       disabled={!typedText.trim() || isProcessing || isAtLimit}
                       activeOpacity={0.85}
                     >
-                      <Text style={checkIn.submitBtnText}>
+                      <MaterialCommunityIcons
+                        name="send"
+                        size={15}
+                        color={(!typedText.trim() || isProcessing || isAtLimit) ? '#9CA3AF' : '#FFFFFF'}
+                      />
+                      <Text style={[checkIn.submitBtnText, (!typedText.trim() || isProcessing || isAtLimit) && { color: '#9CA3AF' }]}>
                         {isProcessing ? 'Processing…' : 'Submit'}
                       </Text>
                     </TouchableOpacity>
@@ -5156,7 +5298,7 @@ const checkIn = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 4,
+    borderRadius: 100,
   },
   actionPrimary: {
     backgroundColor: '#0F6E56',
@@ -5178,21 +5320,28 @@ const checkIn = StyleSheet.create({
   },
   modeToggle: {
     flexDirection: 'row',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
+    backgroundColor: '#EFEFED',
+    borderRadius: 100,
+    padding: 3,
     marginBottom: 24,
     width: '100%',
   },
   modeBtn: {
     flex: 1,
-    paddingVertical: 10,
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 100,
+    gap: 6,
   },
   modeBtnActive: {
-    backgroundColor: '#0F6E56',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   modeBtnText: {
     fontSize: 14,
@@ -5200,7 +5349,7 @@ const checkIn = StyleSheet.create({
     color: '#9CA3AF',
   },
   modeBtnActiveText: {
-    color: '#FFFFFF',
+    color: '#0F6E56',
   },
   typeInput: {
     width: '100%',
@@ -5220,7 +5369,9 @@ const checkIn = StyleSheet.create({
     width: '100%',
     minHeight: 44,
     backgroundColor: '#0F6E56',
-    borderRadius: 4,
+    borderRadius: 100,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
@@ -5236,7 +5387,7 @@ const checkIn = StyleSheet.create({
   },
   acknowledgeBtn: {
     backgroundColor: '#0F6E56',
-    borderRadius: 4,
+    borderRadius: 100,
     paddingVertical: 6,
     paddingHorizontal: 12,
     marginTop: 8,
@@ -5293,7 +5444,7 @@ const checkIn = StyleSheet.create({
   },
   vetSubmitBtn: {
     backgroundColor: '#0F6E56',
-    borderRadius: 4,
+    borderRadius: 100,
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 20,
@@ -5304,7 +5455,7 @@ const checkIn = StyleSheet.create({
     fontWeight: '600',
   },
   vetCancelBtn: {
-    borderRadius: 4,
+    borderRadius: 100,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     paddingVertical: 12,
