@@ -915,6 +915,23 @@ const getCheckInTypeByTime = () => {
   return (hour >= 5 && hour < 17) ? 'morning' : 'evening';
 };
 
+const buildQuickSentence = (sel, name) => {
+  const n = name || 'your dog';
+  const parts = [];
+  if (sel.potty === 'normal') parts.push('went to the bathroom normally');
+  else if (sel.potty === 'soft') parts.push('had soft stools');
+  else if (sel.potty === 'diarrhea') parts.push('had diarrhea');
+  if (sel.activity === 'normal') parts.push('was active');
+  else if (sel.activity === 'low') parts.push('had low activity');
+  if (sel.mood === 'calm') parts.push('seemed calm');
+  else if (sel.mood === 'anxious') parts.push('seemed anxious');
+  if (!parts.length) return '';
+  if (parts.length === 1) return `${n} ${parts[0]} today.`;
+  const last = parts[parts.length - 1];
+  const rest = parts.slice(0, -1);
+  return `${n} ${rest.join(', ')}, and ${last} today.`;
+};
+
 const timeAgo = (isoString) => {
   const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
   if (diff < 60) return 'just now';
@@ -964,13 +981,18 @@ function CheckInScreen({ navigation, route }) {
   const [isClaudeLoading, setIsClaudeLoading] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [inputMode, setInputMode] = useState('voice'); // 'voice' | 'type'
+  const inputModeRef = useRef('voice');
   const [typedText, setTypedText] = useState('');
+  const [quickSelections, setQuickSelections] = useState({ potty: null, activity: null, mood: null });
+  const [quickSheetVisible, setQuickSheetVisible] = useState(false);
+  const quickSheetAnim = useRef(new Animated.Value(0)).current;
   const [inputExpanded, setInputExpanded] = useState(false);
   const [dailyCount, setDailyCount] = useState(0);
   const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
   const scrollRef = useRef(null);
+  const textInputLayoutY = useRef(0);
   const recordingRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const mediaChunksRef = useRef([]);
@@ -984,7 +1006,7 @@ function CheckInScreen({ navigation, route }) {
     const init = async () => {
       if (Platform.OS !== 'web') {
         const { status } = await Audio.requestPermissionsAsync();
-        if (status !== 'granted') { setPermissionDenied(true); setInputMode('type'); }
+        if (status !== 'granted') { setPermissionDenied(true); setInputMode('type'); inputModeRef.current = 'type'; }
       }
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -1105,13 +1127,16 @@ function CheckInScreen({ navigation, route }) {
       setClaudeResponse('');
       setTypedText('');
       setInputExpanded(false);
+      setQuickSelections({ potty: null, activity: null, mood: null });
     });
     return unsubscribe;
   }, [navigation]);
 
   useEffect(() => {
     const sub = Keyboard.addListener('keyboardDidShow', () => {
-      scrollRef.current?.scrollToEnd({ animated: true });
+      if (inputModeRef.current !== 'type') {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }
     });
     return () => sub.remove();
   }, []);
@@ -1192,6 +1217,9 @@ function CheckInScreen({ navigation, route }) {
         .single();
       if (checkInError) {
         console.log('[CheckIn] insert error:', checkInError);
+        if (checkInError?.message === 'daily_checkin_limit_reached') {
+          setDailyCount(DAILY_CHECKIN_LIMIT);
+        }
         return null;
       }
       setDailyCount(c => c + 1);
@@ -1479,7 +1507,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       ? ` I have specifically noticed ${persistentSymptoms.join(', ')} appearing across multiple days.`
       : '';
     const constitution = `You are Know Better, a warm and concise companion for dog owners. You are not a veterinarian and do not diagnose, explain symptoms, identify causes, recommend treatments, or give care advice. Know Better helps owners record everyday observations and notice personalised patterns over time. Use only what the owner has shared. Treat everything they report — including weather, routine changes, or possible explanations — as context to record, not proof of why a behaviour is happening. Never claim that one event caused another.`;
-    const sharedRules = `Do not repeat the owner's words verbatim. Do not offer remedies, next steps, or care advice. Do not ask questions. Do not compliment or praise the owner. Do not open with "I hear you", "It sounds like", or "I can see that". Sound caring, calm, and natural. Keep to 2 sentences maximum.`;
+    const sharedRules = `Do not repeat the owner's words verbatim. Do not offer remedies, next steps, or care advice. Do not ask questions. Do not compliment or praise the owner. Do not open with "I hear you", "It sounds like", or "I can see that". Sound caring, calm, and natural. Keep to 2 sentences maximum. Never use em dashes (—) in your response.`;
     const nonAlertPrompt = `You are Know Better, a warm, calm, and concise companion for dog owners.
 
 <role>
@@ -1503,7 +1531,7 @@ Do not tell the owner to log, track, watch, monitor, wait, compare, or look for 
 <non_alert_task>
 This is a non-alert observation. There is no verified pattern, baseline deviation, or health-risk conclusion unless it appears explicitly in <verified_app_data>.
 
-Respond as a caring companion who is genuinely paying attention to this specific dog — not like a system logging a report. Acknowledge what the owner shared in a way that feels natural and human, grounded in the specific detail they gave. You may briefly note that building up everyday observations helps clarify what is normal for this individual dog, but only if it fits naturally — do not force it into every response as a formula.
+Respond as a caring companion who is genuinely paying attention to this specific dog, not like a system logging a report. Acknowledge what the owner shared in a way that feels natural and human, grounded in the specific detail they gave. You may briefly note that building up everyday observations helps clarify what is normal for this individual dog, but only if it fits naturally. Do not force it into every response as a formula.
 
 Do not claim or imply a trend, relationship, cause, risk, improvement, safety, or recommendation.
 </non_alert_task>
@@ -1529,7 +1557,7 @@ Do not claim or imply a trend, relationship, cause, risk, improvement, safety, o
     </why_not>
 
     <ideal_response>
-      Good to know about the scratching — days like this, alongside the weather context, are exactly what help build a picture of what's normal for Simmy over time.
+      Good to know about the scratching. Days like this, alongside the weather context, are exactly what help build a picture of what's normal for Simmy over time.
     </ideal_response>
   </example>
 
@@ -1553,7 +1581,7 @@ Do not claim or imply a trend, relationship, cause, risk, improvement, safety, o
     </why_not>
 
     <ideal_response>
-      An active day for Simmy — these are just as worth capturing as quieter ones, and they're what helps you understand what's normal for her.
+      An active day for Simmy. These are just as worth capturing as quieter ones, and they're what helps you understand what's normal for her.
     </ideal_response>
   </example>
 </examples>
@@ -1564,7 +1592,8 @@ Do not ask a question. Do not praise or compliment the owner.
 Do not repeat the owner's message verbatim.
 Do not open with "I hear you," "It sounds like," "I can see that," "I have noted," "I've noted," "I've recorded," "Noted," or "I'll note."
 Do not use clinical language, disclaimers, bullet points, headings, emojis, or quotation marks.
-Do not use the words "baseline," "pattern engine," "deviation," or "alert" — use plain language instead (e.g. "what's normal for [dog name]").
+Never use an em dash (—). Use a comma, period, or rephrase instead.
+Do not use the words "baseline," "pattern engine," "deviation," or "alert." Use plain language instead (e.g. "what's normal for [dog name]").
 </style>
 
 <output>
@@ -1582,15 +1611,15 @@ ${transcriptionText}
 </verified_app_data>`;
     let systemPrompt;
     if (alertLevel === 3) {
-      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Lead with a clear, direct recommendation to contact their vet today — briefly note the pattern you have been tracking. Do not repeat what the owner just said. ${sharedRules}`;
+      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Lead with a clear, direct recommendation to contact their vet today. Briefly note the pattern you have been tracking. Do not repeat what the owner just said. ${sharedRules}`;
     } else if (alertLevel === 2) {
-      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Note the pattern you have been tracking and suggest they mention it to their vet within the next day or two — not urgent, but worth flagging. Do not repeat what the owner just said. ${sharedRules}`;
+      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Note the pattern you have been tracking and suggest they mention it to their vet within the next day or two (not urgent, but worth flagging). Do not repeat what the owner just said. ${sharedRules}`;
     } else if (alertLevel === 1) {
-      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Lead with the specific pattern you have been tracking — let them know you are watching it alongside them. Do not repeat what the owner just said. ${sharedRules}`;
+      systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Lead with the specific pattern you have been tracking and let them know you are watching it alongside them. Do not repeat what the owner just said. ${sharedRules}`;
     } else if (classification === 'concerning') {
       systemPrompt = nonAlertPrompt;
     } else if (classification === 'irrelevant') {
-      systemPrompt = `You are Know Better, a warm companion for dog owners. The owner's message does not contain any information about ${name}'s health or routine. Respond warmly and briefly — acknowledge what they said and let them know you are here when they want to share how ${name} is doing. Keep it to 1-2 sentences. Do not ask a question. Do not ask about their personal life.`;
+      systemPrompt = `You are Know Better, a warm companion for dog owners. The owner's message does not contain any information about ${name}'s health or routine. Respond warmly and briefly. Acknowledge what they said and let them know you are here when they want to share how ${name} is doing. Keep it to 1-2 sentences. Do not ask a question. Do not ask about their personal life. Never use an em dash (—).`;
     } else {
       systemPrompt = nonAlertPrompt;
     }
@@ -1800,9 +1829,9 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": null, "w
           max_tokens: 16,
           system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify into exactly one of four categories using the rules below.
 
-NORMAL — classify as NORMAL if the owner describes routine healthy behavior or common variations without severity. This includes: eating, drinking, playing, daily elimination, normal energy, occasional scratching, sleeping more than usual, mild low energy, or a bit tired. Also classify as NORMAL when the owner offers a benign explanation ("probably the weather", "rest is all good", "not sure but everything else is fine") or says things are generally okay.
+NORMAL — classify as NORMAL if the owner describes routine healthy behavior or common variations without severity. This includes: eating, drinking, playing, daily elimination, normal energy, occasional scratching, sleeping more than usual, mild low energy, or a bit tired. Also classify as NORMAL when the owner offers a benign explanation ("probably the weather", "rest is all good", "not sure but everything else is fine") or says things are generally okay. Soft stools alone, low activity alone, and anxious behavior alone are also NORMAL — these are weak signals that only become concerning in combination.
 
-CONCERNING — classify as CONCERNING only when at least one of these is true: a physical symptom is present (limping, rash, swelling, discharge, bleeding, coughing), OR severity is clearly extreme (won't eat at all, completely lethargic, frantic scratching, hasn't drunk water all day, won't move), OR the owner explicitly expresses worry ("something feels off", "this isn't like him", "I'm concerned").
+CONCERNING — classify as CONCERNING only when at least one of these is true: a physical symptom is present (limping, rash, swelling, discharge, bleeding, coughing), OR severity is clearly extreme (won't eat at all, completely lethargic, frantic scratching, hasn't drunk water all day, won't move), OR the owner explicitly expresses worry ("something feels off", "this isn't like him", "I'm concerned"), OR diarrhea is mentioned, OR two or more weak signals are present together (e.g. soft stools + low activity, soft stools + anxious, low activity + anxious).
 
 HEALTH_EVENT — the owner mentions a significant medical event: vet visit, surgery, new medication, hospitalization, diagnosis.
 
@@ -2029,12 +2058,32 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     else if (recordingState === 'recording') stopAndTranscribe();
   };
 
-  const handleTextSubmit = async () => {
-    const text = typedText.trim();
+  const openQuickSheet = () => {
+    setQuickSheetVisible(true);
+    Animated.spring(quickSheetAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 11 }).start();
+  };
+
+  const closeQuickSheet = () => {
+    Animated.timing(quickSheetAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setQuickSheetVisible(false);
+      setQuickSelections({ potty: null, activity: null, mood: null });
+    });
+  };
+
+  const handleQuickSubmit = () => {
+    if (isAtLimit) return;
+    const sentence = buildQuickSentence(quickSelections, dogName);
+    if (!sentence) return;
+    closeQuickSheet();
+    handleTextSubmit(sentence);
+  };
+
+  const handleTextSubmit = async (overrideText) => {
+    const text = (typeof overrideText === 'string' ? overrideText : typedText).trim();
     if (!text) return;
     setRecordingState('processing');
     setTranscription(text);
-    setTypedText('');
+    if (overrideText === undefined) setTypedText('');
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
@@ -2071,6 +2120,11 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           logAnalyticsEvent(userId, 'check_in_created', { dog_id: dogId, check_in_type: 'text', classification });
         } else {
           console.log('[TextCheckIn] insert error:', checkInError);
+          if (checkInError?.message === 'daily_checkin_limit_reached') {
+            setDailyCount(DAILY_CHECKIN_LIMIT);
+            setClaudeResponse('10 check-ins today, I\'m all set. I\'ll see you tomorrow.');
+            return;
+          }
         }
       }
       if (checkInId) {
@@ -2172,7 +2226,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             <View style={checkIn.modeToggle}>
               <TouchableOpacity
                 style={[checkIn.modeBtn, inputMode === 'voice' && checkIn.modeBtnActive]}
-                onPress={() => { setInputMode('voice'); setInputExpanded(false); }}
+                onPress={() => { setInputMode('voice'); inputModeRef.current = 'voice'; setInputExpanded(false); }}
                 activeOpacity={0.85}
               >
                 <MaterialCommunityIcons
@@ -2184,7 +2238,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               </TouchableOpacity>
               <TouchableOpacity
                 style={[checkIn.modeBtn, inputMode === 'type' && checkIn.modeBtnActive]}
-                onPress={() => { setInputMode('type'); setInputExpanded(false); }}
+                onPress={() => { setInputMode('type'); inputModeRef.current = 'type'; setInputExpanded(false); }}
                 activeOpacity={0.85}
               >
                 <MaterialCommunityIcons
@@ -2195,6 +2249,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 <Text style={[checkIn.modeBtnText, inputMode === 'type' && checkIn.modeBtnActiveText]}>Type</Text>
               </TouchableOpacity>
             </View>
+
 
             {inputMode === 'voice' ? (
               permissionDenied ? (
@@ -2223,9 +2278,9 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                     </Animated.View>
                   </TouchableOpacity>
 
-                  {!isAtLimit && (
+                  {!isAtLimit && (isProcessing || isRecording) && (
                     <Text style={checkIn.listening}>
-                      {isProcessing ? 'Processing…' : isRecording ? 'Recording…' : "I'm listening."}
+                      {isProcessing ? 'Processing…' : 'Listening… tap to stop'}
                     </Text>
                   )}
 
@@ -2237,7 +2292,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                     <>
                       {recordingState === 'idle' && !transcription && (
                         <Text style={checkIn.hint}>
-                          Tap the mic and tell me about {dogName || 'your dog'}'s {getTimeOfDay()}
+                          Tap the mic and tell me about {dogName || 'your dog'}'s day
                         </Text>
                       )}
                     </>
@@ -2249,13 +2304,17 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 <TextInput
                   style={[checkIn.typeInput, { height: inputExpanded ? 120 : 50 }]}
                   multiline
-                  placeholder="Describe what you observed..."
+                  placeholder="e.g. Ate half her breakfast, a bit sleepy"
                   placeholderTextColor="#9CA3AF"
                   value={typedText}
                   onChangeText={setTypedText}
                   editable={!isProcessing && !isAtLimit}
                   textAlignVertical="top"
-                  onFocus={() => setInputExpanded(true)}
+                  onLayout={(e) => { textInputLayoutY.current = e.nativeEvent.layout.y; }}
+                  onFocus={() => {
+                    setInputExpanded(true);
+                    setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, textInputLayoutY.current - 80), animated: true }), 100);
+                  }}
                   onBlur={() => setInputExpanded(false)}
                 />
                 {isAtLimit ? (
@@ -2276,12 +2335,19 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                         color={(!typedText.trim() || isProcessing || isAtLimit) ? '#9CA3AF' : '#FFFFFF'}
                       />
                       <Text style={[checkIn.submitBtnText, (!typedText.trim() || isProcessing || isAtLimit) && { color: '#9CA3AF' }]}>
-                        {isProcessing ? 'Processing…' : 'Submit'}
+                        {isProcessing ? 'Processing…' : 'Log it'}
                       </Text>
                     </TouchableOpacity>
                   </>
                 )}
               </>
+            )}
+
+            {!isAtLimit && !isProcessing && (
+              <TouchableOpacity style={checkIn.quickLogLink} onPress={openQuickSheet} activeOpacity={0.7}>
+                <MaterialCommunityIcons name="lightning-bolt" size={13} color="#0F6E56" />
+                <Text style={checkIn.quickLogLinkText}>Quick log</Text>
+              </TouchableOpacity>
             )}
 
             {!!transcription && (
@@ -2429,6 +2495,75 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           </KeyboardAvoidingView>
         </View>
       </Modal>
+
+      <Modal visible={quickSheetVisible} transparent animationType="none" onRequestClose={closeQuickSheet}>
+        <View style={checkIn.sheetBackdrop}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={closeQuickSheet} />
+          <Animated.View style={[
+            checkIn.sheet,
+            { transform: [{ translateY: quickSheetAnim.interpolate({ inputRange: [0, 1], outputRange: [400, 0] }) }] },
+          ]}>
+            <View style={checkIn.sheetHandle} />
+            <Text style={checkIn.sheetTitle}>Quick log</Text>
+            <View style={checkIn.quickGroups}>
+              <View style={checkIn.quickCategoryRow}>
+                <Text style={checkIn.quickCategoryLabel}>Potty</Text>
+                <View style={checkIn.quickBtnGroup}>
+                  {['normal', 'soft', 'diarrhea'].map(v => (
+                    <TouchableOpacity
+                      key={v}
+                      style={[checkIn.quickBtn, quickSelections.potty === v && checkIn.quickBtnActive]}
+                      onPress={() => setQuickSelections(s => ({ ...s, potty: s.potty === v ? null : v }))}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[checkIn.quickBtnText, quickSelections.potty === v && checkIn.quickBtnActiveText]}>
+                        {v.charAt(0).toUpperCase() + v.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              <View style={checkIn.quickCategoryRow}>
+                <Text style={checkIn.quickCategoryLabel}>Activity</Text>
+                <View style={checkIn.quickBtnGroup}>
+                  {[{ v: 'normal', label: 'Normal' }, { v: 'low', label: 'Low' }].map(({ v, label }) => (
+                    <TouchableOpacity
+                      key={v}
+                      style={[checkIn.quickBtn, quickSelections.activity === v && checkIn.quickBtnActive]}
+                      onPress={() => setQuickSelections(s => ({ ...s, activity: s.activity === v ? null : v }))}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[checkIn.quickBtnText, quickSelections.activity === v && checkIn.quickBtnActiveText]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              <View style={checkIn.quickCategoryRow}>
+                <Text style={checkIn.quickCategoryLabel}>Mood</Text>
+                <View style={checkIn.quickBtnGroup}>
+                  {[{ v: 'calm', label: 'Calm' }, { v: 'anxious', label: 'Anxious' }].map(({ v, label }) => (
+                    <TouchableOpacity
+                      key={v}
+                      style={[checkIn.quickBtn, quickSelections.mood === v && checkIn.quickBtnActive]}
+                      onPress={() => setQuickSelections(s => ({ ...s, mood: s.mood === v ? null : v }))}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[checkIn.quickBtnText, quickSelections.mood === v && checkIn.quickBtnActiveText]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+            {buildQuickSentence(quickSelections, dogName) ? (
+              <TouchableOpacity style={checkIn.quickSubmitBtn} onPress={handleQuickSubmit} activeOpacity={0.85}>
+                <MaterialCommunityIcons name="send" size={14} color="#FFFFFF" />
+                <Text style={checkIn.quickSubmitBtnText}>Log it</Text>
+              </TouchableOpacity>
+            ) : null}
+          </Animated.View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -5378,7 +5513,9 @@ const checkIn = StyleSheet.create({
     marginTop: 4,
   },
   submitBtnDisabled: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   submitBtnText: {
     fontSize: 16,
@@ -5483,6 +5620,101 @@ const checkIn = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '500',
+  },
+  quickLogLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    marginTop: 24,
+    marginBottom: 8,
+    borderRadius: 100,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+  },
+  quickLogLinkText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F6E56',
+  },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 44,
+    gap: 20,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  sheetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  quickGroups: {
+    gap: 14,
+  },
+  quickCategoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quickCategoryLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+    width: 54,
+  },
+  quickBtnGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    flex: 1,
+  },
+  quickBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 100,
+    backgroundColor: '#F3F4F6',
+  },
+  quickBtnActive: {
+    backgroundColor: '#0F6E56',
+  },
+  quickBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  quickBtnActiveText: {
+    color: '#FFFFFF',
+  },
+  quickSubmitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F6E56',
+    borderRadius: 100,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  quickSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
 
