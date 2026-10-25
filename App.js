@@ -139,24 +139,20 @@ const getMoodOptions = (sex) => {
 
 // ─── Age data ────────────────────────────────────────────────────────────────
 
-const AGE_OPTIONS = [
-  'Less than 1 year',
-  '1 year',
-  '2 years',
-  '3 years',
-  '4 years',
-  '5 years',
-  '6 years',
-  '7 years',
-  '8 years',
-  '9 years',
-  '10 years',
-  '11 years',
-  '12 years',
-  '13 years',
-  '14 years',
-  '15+ years',
-];
+const YEAR_OPTIONS = Array.from({ length: 16 }, (_, i) => i);
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => i);
+
+const yearLabel = (y) => (y === 15 ? '15+' : String(y));
+const monthLabel = (m) => String(m);
+
+const formatAge = (years, months) => {
+  if (years === 15) return '15+ years';
+  if (years === 0 && months === 0) return 'Less than 1 month';
+  const parts = [];
+  if (years > 0) parts.push(`${years} ${years === 1 ? 'year' : 'years'}`);
+  if (months > 0) parts.push(`${months} ${months === 1 ? 'month' : 'months'}`);
+  return parts.join(' ');
+};
 
 // ─── Breed data ───────────────────────────────────────────────────────────────
 
@@ -166,27 +162,60 @@ const SPECIAL_OPTIONS = [
 ];
 
 const DOG_BREEDS = [
-  'Affenpinscher', 'Afghan Hound', 'Airedale Terrier', 'Akita', 'Alaskan Malamute',
-  'American Bulldog', 'American Eskimo Dog', 'Australian Cattle Dog', 'Australian Shepherd',
-  'Basenji', 'Basset Hound', 'Beagle', 'Bearded Collie', 'Belgian Malinois',
-  'Bernese Mountain Dog', 'Bichon Frise', 'Bloodhound', 'Border Collie', 'Border Terrier',
-  'Boston Terrier', 'Boxer', 'Brittany', 'Brussels Griffon', 'Bull Terrier',
-  'Bulldog', 'Bullmastiff', 'Cairn Terrier', 'Cane Corso', 'Cavalier King Charles Spaniel',
-  'Chesapeake Bay Retriever', 'Chihuahua', 'Chinese Crested', 'Chinese Shar-Pei', 'Chow Chow',
-  'Cocker Spaniel', 'Collie', 'Dachshund', 'Dalmatian', 'Doberman Pinscher',
-  'English Setter', 'English Springer Spaniel', 'French Bulldog', 'German Shepherd',
-  'German Shorthaired Pointer', 'Golden Retriever', 'Great Dane', 'Great Pyrenees',
-  'Greyhound', 'Havanese', 'Irish Setter', 'Irish Wolfhound', 'Italian Greyhound',
-  'Jack Russell Terrier', 'Japanese Chin', 'Keeshond', 'Labrador Retriever', 'Leonberger',
-  'Lhasa Apso', 'Maltese', 'Mastiff', 'Miniature Pinscher', 'Miniature Schnauzer',
-  'Newfoundland', 'Norwegian Elkhound', 'Old English Sheepdog', 'Papillon', 'Pekingese',
-  'Pembroke Welsh Corgi', 'Pit Bull Terrier', 'Pointer', 'Pomeranian', 'Poodle',
-  'Portuguese Water Dog', 'Pug', 'Rat Terrier', 'Rhodesian Ridgeback', 'Rottweiler',
-  'Saint Bernard', 'Samoyed', 'Schipperke', 'Scottish Terrier', 'Shetland Sheepdog',
-  'Shih Tzu', 'Siberian Husky', 'Silky Terrier', 'Soft Coated Wheaten Terrier',
-  'Staffordshire Bull Terrier', 'Standard Schnauzer', 'Tibetan Mastiff', 'Vizsla',
-  'Weimaraner', 'West Highland White Terrier', 'Whippet', 'Wire Fox Terrier',
-  'Wirehaired Pointing Griffon', 'Yorkshire Terrier',
+  'Affenpinscher', 'Afghan Hound', 'Airedale Terrier', 'Akita', 'Alaskan Klee Kai',
+  'Alaskan Malamute', 'American Bulldog', 'American Eskimo Dog', 'American Foxhound',
+  'American Hairless Terrier', 'American Staffordshire Terrier', 'American Water Spaniel',
+  'Anatolian Shepherd Dog', 'Appenzeller Sennenhund', 'Aussiedoodle', 'Australian Cattle Dog',
+  'Australian Kelpie', 'Australian Shepherd', 'Australian Terrier', 'Azawakh', 'Barbet',
+  'Basenji', 'Basset Fauve de Bretagne', 'Basset Hound', 'Beagle', 'Bearded Collie', 'Beauceron',
+  'Bedlington Terrier', 'Belgian Laekenois', 'Belgian Malinois', 'Belgian Sheepdog',
+  'Belgian Tervuren', 'Bergamasco Sheepdog', 'Berger Picard', 'Bernedoodle',
+  'Bernese Mountain Dog', 'Bichon Frise', 'Biewer Terrier', 'Black and Tan Coonhound',
+  'Black Russian Terrier', 'Bloodhound', 'Bluetick Coonhound', 'Boerboel', 'Bolognese',
+  'Border Collie', 'Border Terrier', 'Borzoi', 'Boston Terrier', 'Bouvier des Flandres', 'Boxer',
+  'Boykin Spaniel', 'Bracco Italiano', 'Briard', 'Brittany', 'Brussels Griffon', 'Bull Terrier',
+  'Bulldog', 'Bullmastiff', 'Cairn Terrier', 'Cane Corso', 'Cardigan Welsh Corgi', 'Carolina Dog',
+  'Catahoula Leopard Dog', 'Caucasian Shepherd Dog', 'Cavalier King Charles Spaniel', 'Cavapoo',
+  'Central Asian Shepherd Dog', 'Cesky Terrier', 'Chesapeake Bay Retriever', 'Chihuahua',
+  'Chinese Crested', 'Chinese Shar-Pei', 'Chinook', 'Chiweenie', 'Chow Chow', 'Clumber Spaniel',
+  'Cockapoo', 'Cocker Spaniel', 'Collie', 'Coton de Tulear', 'Curly-Coated Retriever',
+  'Czechoslovakian Vlcak', 'Dachshund', 'Dalmatian', 'Dandie Dinmont Terrier',
+  'Danish-Swedish Farmdog', 'Doberman Pinscher', 'Dogo Argentino', 'Dogue de Bordeaux',
+  'Dutch Shepherd', 'English Cocker Spaniel', 'English Foxhound', 'English Setter',
+  'English Springer Spaniel', 'English Toy Spaniel', 'Entlebucher Mountain Dog', 'Eurasier',
+  'Field Spaniel', 'Finnish Lapphund', 'Finnish Spitz', 'Flat-Coated Retriever', 'French Bulldog',
+  'German Longhaired Pointer', 'German Pinscher', 'German Shepherd', 'German Shorthaired Pointer',
+  'German Wirehaired Pointer', 'Giant Schnauzer', 'Glen of Imaal Terrier', 'Golden Retriever',
+  'Goldendoodle', 'Gordon Setter', 'Grand Basset Griffon Vendeen', 'Great Dane', 'Great Pyrenees',
+  'Greater Swiss Mountain Dog', 'Greyhound', 'Harrier', 'Havanese', 'Hovawart', 'Ibizan Hound',
+  'Icelandic Sheepdog', 'Irish Red and White Setter', 'Irish Setter', 'Irish Terrier',
+  'Irish Water Spaniel', 'Irish Wolfhound', 'Italian Greyhound', 'Jack Russell Terrier',
+  'Japanese Chin', 'Kai Ken', 'Karelian Bear Dog', 'Keeshond', 'Kerry Blue Terrier', 'Kishu Ken',
+  'Komondor', 'Kooikerhondje', 'Korean Jindo', 'Kuvasz', 'Labradoodle', 'Labrador Retriever',
+  'Lagotto Romagnolo', 'Lakeland Terrier', 'Lancashire Heeler', 'Lapponian Herder', 'Leonberger',
+  'Lhasa Apso', 'Lowchen', 'Maltese', 'Maltipoo', 'Manchester Terrier', 'Maremma Sheepdog',
+  'Mastiff', 'Miniature American Shepherd', 'Miniature Bull Terrier', 'Miniature Pinscher',
+  'Miniature Poodle', 'Miniature Schnauzer', 'Morkie', 'Mudi', 'Neapolitan Mastiff',
+  'Newfoundland', 'Norfolk Terrier', 'Norwegian Buhund', 'Norwegian Elkhound',
+  'Norwegian Lundehund', 'Norwich Terrier', 'Nova Scotia Duck Tolling Retriever',
+  'Old English Sheepdog', 'Otterhound', 'Papillon', 'Patterdale Terrier', 'Pekingese',
+  'Pembroke Welsh Corgi', 'Perro de Presa Canario', 'Petit Basset Griffon Vendeen',
+  'Pharaoh Hound', 'Pit Bull Terrier', 'Plott Hound', 'Pointer', 'Polish Lowland Sheepdog',
+  'Pomeranian', 'Pomsky', 'Poodle', 'Portuguese Podengo', 'Portuguese Water Dog', 'Pudelpointer',
+  'Pug', 'Puggle', 'Puli', 'Pumi', 'Pyrenean Mastiff', 'Pyrenean Shepherd', 'Rat Terrier',
+  'Redbone Coonhound', 'Rhodesian Ridgeback', 'Rottweiler', 'Rough Collie', 'Russell Terrier',
+  'Saint Bernard', 'Saluki', 'Samoyed', 'Schipperke', 'Schnoodle', 'Scottish Deerhound',
+  'Scottish Terrier', 'Sealyham Terrier', 'Sheepadoodle', 'Shetland Sheepdog', 'Shiba Inu',
+  'Shih Tzu', 'Shih-Poo', 'Shikoku', 'Shiloh Shepherd', 'Siberian Husky', 'Silky Terrier',
+  'Skye Terrier', 'Sloughi', 'Small Munsterlander', 'Smooth Fox Terrier',
+  'Soft Coated Wheaten Terrier', 'Spanish Mastiff', 'Spanish Water Dog', 'Spinone Italiano',
+  'Stabyhoun', 'Staffordshire Bull Terrier', 'Standard Poodle', 'Standard Schnauzer',
+  'Sussex Spaniel', 'Swedish Lapphund', 'Swedish Vallhund', 'Thai Ridgeback', 'Tibetan Mastiff',
+  'Tibetan Spaniel', 'Tibetan Terrier', 'Tosa Inu', 'Toy Fox Terrier', 'Toy Poodle',
+  'Treeing Walker Coonhound', 'Turkish Kangal', 'Vizsla', 'Weimaraner', 'Welsh Springer Spaniel',
+  'Welsh Terrier', 'West Highland White Terrier', 'Whippet', 'White Swiss Shepherd',
+  'Wire Fox Terrier', 'Wirehaired Pointing Griffon', 'Xoloitzcuintli', 'Yorkipoo',
+  'Yorkshire Terrier',
 ];
 
 // ─── Screen 0: Auth Loading ───────────────────────────────────────────────────
@@ -499,8 +528,56 @@ function DogBreedScreen({ navigation, route }) {
 
 function DogAgeScreen({ navigation, route }) {
   const { dogName = 'your dog', breed, sex } = route.params ?? {};
-  const [selectedAge, setSelectedAge] = useState(null);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [years, setYears] = useState(0);
+  const [months, setMonths] = useState(0);
+  const [openDropdown, setOpenDropdown] = useState(null);
+
+  const renderColumn = (which, label, options, value, onSelect, labelFor) => (
+    <View style={[dogAge.ageCol, openDropdown === which && dogAge.ageColOpen]}>
+      <Text style={dogAge.ageColLabel}>{label}</Text>
+      <TouchableOpacity
+        style={dogAge.trigger}
+        onPress={() => setOpenDropdown(prev => (prev === which ? null : which))}
+        activeOpacity={0.8}
+      >
+        <Text style={dogAge.triggerText}>{labelFor(value)}</Text>
+        <MaterialCommunityIcons
+          name={openDropdown === which ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color="#9CA3AF"
+        />
+      </TouchableOpacity>
+
+      {openDropdown === which && (
+        <View style={dogAge.ageDropdown}>
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 240 }} nestedScrollEnabled>
+            {options.map((option, index) => (
+              <TouchableOpacity
+                key={option}
+                style={[
+                  dogAge.option,
+                  value === option && dogAge.optionSelected,
+                  index === options.length - 1 && dogAge.lastOption,
+                ]}
+                onPress={() => {
+                  onSelect(option);
+                  setOpenDropdown(null);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[dogAge.optionText, value === option && dogAge.optionTextSelected]}>
+                  {labelFor(option)}
+                </Text>
+                {value === option && (
+                  <MaterialCommunityIcons name="check" size={16} color="#0F6E56" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <View style={dogAge.container}>
@@ -511,59 +588,17 @@ function DogAgeScreen({ navigation, route }) {
 
       <Text style={dogAge.question}>How old is {dogName}?</Text>
 
-      <View style={dogAge.dropdownWrapper}>
-        <TouchableOpacity
-          style={dogAge.trigger}
-          onPress={() => setShowDropdown(prev => !prev)}
-          activeOpacity={0.8}
-        >
-          <Text style={[dogAge.triggerText, !selectedAge && dogAge.triggerPlaceholder]}>
-            {selectedAge ?? 'Select age'}
-          </Text>
-          <MaterialCommunityIcons
-            name={showDropdown ? 'chevron-up' : 'chevron-down'}
-            size={20}
-            color="#9CA3AF"
-          />
-        </TouchableOpacity>
-
-        {showDropdown && (
-          <View style={dogAge.dropdown}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 240 }}>
-              {AGE_OPTIONS.map((option, index) => (
-                <TouchableOpacity
-                  key={option}
-                  style={[
-                    dogAge.option,
-                    selectedAge === option && dogAge.optionSelected,
-                    index === AGE_OPTIONS.length - 1 && dogAge.lastOption,
-                  ]}
-                  onPress={() => {
-                    setSelectedAge(option);
-                    setShowDropdown(false);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[dogAge.optionText, selectedAge === option && dogAge.optionTextSelected]}>
-                    {option}
-                  </Text>
-                  {selectedAge === option && (
-                    <MaterialCommunityIcons name="check" size={16} color="#0F6E56" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+      <View style={dogAge.ageRow}>
+        {renderColumn('years', 'Years', YEAR_OPTIONS, years, setYears, yearLabel)}
+        {renderColumn('months', 'Months', MONTH_OPTIONS, months, setMonths, monthLabel)}
       </View>
 
       <TouchableOpacity
-        style={[dogAge.button, { backgroundColor: selectedAge ? '#0F6E56' : '#E5E7EB' }]}
+        style={[dogAge.button, { backgroundColor: '#0F6E56' }]}
         activeOpacity={0.85}
-        disabled={!selectedAge}
-        onPress={() => navigation.navigate('DogHealth', { dogName, breed, sex, age: selectedAge })}
+        onPress={() => navigation.navigate('DogHealth', { dogName, breed, sex, age: formatAge(years, months) })}
       >
-        <Text style={[dogAge.buttonText, { color: selectedAge ? '#FFFFFF' : '#9CA3AF' }]}>Next</Text>
+        <Text style={[dogAge.buttonText, { color: '#FFFFFF' }]}>Next</Text>
       </TouchableOpacity>
     </View>
   );
@@ -3703,8 +3738,9 @@ function AddDogScreen({ navigation }) {
   const [breed, setBreed] = useState('');
   const [showBreedSuggestions, setShowBreedSuggestions] = useState(false);
   const [sex, setSex] = useState(null);
-  const [age, setAge] = useState(null);
-  const [showAgeDropdown, setShowAgeDropdown] = useState(false);
+  const [ageYears, setAgeYears] = useState(0);
+  const [ageMonths, setAgeMonths] = useState(0);
+  const [openAgeDropdown, setOpenAgeDropdown] = useState(null);
   const [localPhotoUri, setLocalPhotoUri] = useState(null);
   const [localPhotoBase64, setLocalPhotoBase64] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -3747,7 +3783,7 @@ function AddDogScreen({ navigation }) {
           dog_name: name.trim(),
           breed: breed.trim(),
           sex: sex.toLowerCase(),
-          date_of_birth: age ? ageToDOB(age) : null,
+          date_of_birth: ageToDOB(formatAge(ageYears, ageMonths)),
         })
         .select('dog_id')
         .single();
@@ -3927,40 +3963,48 @@ function AddDogScreen({ navigation }) {
 
         {/* Age */}
         <View style={addDog.field}>
-          <Text style={addDog.label}>Age <Text style={addDog.optional}>(optional)</Text></Text>
-          <TouchableOpacity
-            style={addDog.ageTrigger}
-            onPress={() => setShowAgeDropdown(prev => !prev)}
-            activeOpacity={0.8}
-          >
-            <Text style={[addDog.ageTriggerText, !age && addDog.agePlaceholder]}>
-              {age ?? 'Select age'}
-            </Text>
-            <MaterialCommunityIcons
-              name={showAgeDropdown ? 'chevron-up' : 'chevron-down'}
-              size={20}
-              color={T.color.gray600}
-            />
-          </TouchableOpacity>
-          {showAgeDropdown && (
-            <View style={addDog.inlineDropdown}>
-              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 200 }} nestedScrollEnabled>
-                {AGE_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option}
-                    style={[addDog.dropdownItem, age === option && addDog.dropdownItemSelected]}
-                    onPress={() => { setAge(option); setShowAgeDropdown(false); }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[addDog.dropdownText, age === option && addDog.dropdownTextSelected]}>
-                      {option}
-                    </Text>
-                    {age === option && <MaterialCommunityIcons name="check" size={16} color={T.color.teal} />}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
+          <Text style={addDog.label}>Age</Text>
+          <View style={addDog.ageRow}>
+            {[
+              { which: 'years', label: 'Years', options: YEAR_OPTIONS, value: ageYears, onSelect: setAgeYears, labelFor: yearLabel },
+              { which: 'months', label: 'Months', options: MONTH_OPTIONS, value: ageMonths, onSelect: setAgeMonths, labelFor: monthLabel },
+            ].map(({ which, label, options, value, onSelect, labelFor }) => (
+              <View key={which} style={addDog.ageCol}>
+                <Text style={addDog.ageColLabel}>{label}</Text>
+                <TouchableOpacity
+                  style={addDog.ageTrigger}
+                  onPress={() => setOpenAgeDropdown(prev => (prev === which ? null : which))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={addDog.ageTriggerText}>{labelFor(value)}</Text>
+                  <MaterialCommunityIcons
+                    name={openAgeDropdown === which ? 'chevron-up' : 'chevron-down'}
+                    size={20}
+                    color={T.color.gray600}
+                  />
+                </TouchableOpacity>
+                {openAgeDropdown === which && (
+                  <View style={addDog.inlineDropdown}>
+                    <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 200 }} nestedScrollEnabled>
+                      {options.map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[addDog.dropdownItem, value === option && addDog.dropdownItemSelected]}
+                          onPress={() => { onSelect(option); setOpenAgeDropdown(null); }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[addDog.dropdownText, value === option && addDog.dropdownTextSelected]}>
+                            {labelFor(option)}
+                          </Text>
+                          {value === option && <MaterialCommunityIcons name="check" size={16} color={T.color.teal} />}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
         </View>
 
         {error ? <Text style={addDog.errorText}>{error}</Text> : null}
@@ -3985,14 +4029,18 @@ function AddDogScreen({ navigation }) {
 // ─── Onboarding save helpers ─────────────────────────────────────────────────
 
 const ageToDOB = (ageStr) => {
+  if (!ageStr) return null;
   const d = new Date();
+  if (ageStr === 'Less than 1 month') return d.toISOString().split('T')[0];
   if (ageStr === 'Less than 1 year') {
     d.setMonth(d.getMonth() - 6);
     return d.toISOString().split('T')[0];
   }
-  const num = parseInt(ageStr, 10);
-  if (isNaN(num)) return null;
-  d.setFullYear(d.getFullYear() - num);
+  const years = Number(ageStr.match(/(\d+)\+?\s*years?/)?.[1] ?? 0);
+  const months = Number(ageStr.match(/(\d+)\s*months?/)?.[1] ?? 0);
+  if (!years && !months) return null;
+  d.setFullYear(d.getFullYear() - years);
+  d.setMonth(d.getMonth() - months);
   return d.toISOString().split('T')[0];
 };
 
@@ -4573,6 +4621,40 @@ const dogAge = StyleSheet.create({
   },
   dropdownWrapper: {
     zIndex: 10,
+  },
+  ageRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  ageCol: {
+    flex: 1,
+    zIndex: 10,
+  },
+  ageColOpen: {
+    zIndex: 30,
+  },
+  ageColLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    marginBottom: 6,
+  },
+  ageDropdown: {
+    position: 'absolute',
+    top: 74,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    backgroundColor: '#FAFAF9',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 8,
   },
   trigger: {
     flexDirection: 'row',
@@ -6422,6 +6504,19 @@ const addDog = StyleSheet.create({
   segmentTextActive: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  ageRow: {
+    flexDirection: 'row',
+    gap: T.space.sm,
+  },
+  ageCol: {
+    flex: 1,
+  },
+  ageColLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: T.color.gray600,
+    marginBottom: 4,
   },
   ageTrigger: {
     flexDirection: 'row',
