@@ -757,10 +757,17 @@ function AccountScreen({ navigation, route }) {
       email: email.trim(),
       options: { shouldCreateUser: true },
     });
-    if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
+    if (authError) console.log('[OTP] signInWithOtp error:', authError.message, 'status:', authError.status);
     setIsLoading(false);
     if (authError) {
-      setError('Something went wrong. Please try again.');
+      const msg = authError.message?.toLowerCase() ?? '';
+      const isRateLimit = authError.status === 429 || msg.includes('rate') || msg.includes('security purposes') || msg.includes('too many');
+      const isEmailError = authError.status === 422 || msg.includes('validate') || msg.includes('invalid') || msg.includes('format');
+      setError(isRateLimit
+        ? 'Too many attempts. Please wait a moment and try again.'
+        : isEmailError
+        ? 'Please enter a valid email address.'
+        : 'Something went wrong. Please try again.');
     } else {
       navigation.navigate('OtpCode', { email: email.trim(), isNewUser: true });
     }
@@ -839,10 +846,20 @@ function SignInScreen({ navigation }) {
       email: email.trim(),
       options: { shouldCreateUser: false },
     });
-    if (authError) console.log('[OTP] signInWithOtp error:', authError.message);
+    if (authError) console.log('[OTP] signInWithOtp error:', authError.message, 'status:', authError.status);
     setIsLoading(false);
     if (authError) {
-      setError('Something went wrong. Please try again.');
+      const msg = authError.message?.toLowerCase() ?? '';
+      const isRateLimit = authError.status === 429 || msg.includes('rate') || msg.includes('security purposes') || msg.includes('too many');
+      const isNotRegistered = msg.includes('signups not allowed') || msg.includes('user not found');
+      const isEmailError = msg.includes('validate') || msg.includes('invalid') || msg.includes('format');
+      setError(isRateLimit
+        ? 'Too many attempts. Please wait a moment and try again.'
+        : isNotRegistered
+        ? "We don't have an account for that email. Please check the address or sign up."
+        : isEmailError
+        ? 'Please enter a valid email address.'
+        : 'Something went wrong. Please try again.');
     } else {
       navigation.navigate('OtpCode', { email: email.trim(), isNewUser: false });
     }
@@ -1542,108 +1559,54 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
       ? ` I have specifically noticed ${persistentSymptoms.join(', ')} appearing across multiple days.`
       : '';
     const constitution = `You are Know Better, a warm and concise companion for dog owners. You are not a veterinarian and do not diagnose, explain symptoms, identify causes, recommend treatments, or give care advice. Know Better helps owners record everyday observations and notice personalised patterns over time. Use only what the owner has shared. Treat everything they report — including weather, routine changes, or possible explanations — as context to record, not proof of why a behaviour is happening. Never claim that one event caused another.`;
-    const sharedRules = `Do not repeat the owner's words verbatim. Do not offer remedies, next steps, or care advice. Do not ask questions. Do not compliment or praise the owner. Do not open with "I hear you", "It sounds like", or "I can see that". Sound caring, calm, and natural. Keep to 2 sentences maximum. Never use em dashes (—) in your response.`;
-    const nonAlertPrompt = `You are Know Better, a warm, calm, and concise companion for dog owners.
+    const sharedRules = `Do not repeat the owner's words verbatim. Do not offer remedies, next steps, or care advice. Do not ask questions. Do not compliment or praise the owner. Do not open with "I hear you", "It sounds like", or "I can see that". Sound caring, calm, and natural. Keep to 2 sentences maximum. Never use em dashes (—) in your response. Always refer to the dog by the name in the verified data, even if a different name appears in the owner's message.`;
+    const nonAlertPrompt = `You are Know Better, a warm, attentive companion for people keeping a daily journal of their dog's life.
 
-<role>
-Know Better helps owners record everyday observations and understand each dog's personalized behavior pattern over time. You are not a veterinarian.
-</role>
+This response accompanies a routine journal entry. Alert decisions are handled separately.
 
-<boundaries>
-You do not diagnose, name medical conditions, explain symptoms, identify causes, recommend treatments, suggest home remedies, give medication guidance, or provide care advice.
+Write one or two short sentences that offer a small, grounded reflection on the entry. Sound like a thoughtful companion, not a clinician, a dog-fact generator, or a record-keeping system.
 
-Use only facts explicitly supplied by the owner and verified app data.
+Stay close to what the owner actually reported. Use the specific detail that makes this day distinct — that's enough.
 
-Treat all owner-reported details—including weather, routine changes, activities, food, events, and possible explanations—as context to record, not evidence of why a behavior is happening.
+Keep observations separate from explanations. Details appearing together do not establish that one caused the other. Claims about this dog's usual behavior require verified history.
 
-Never state, imply, predict, test, or frame one reported detail as a possible cause, trigger, correlation, explanation, or condition for another.
+Let ordinary days remain ordinary. When the entry offers little detail, a simple, warm acknowledgment is enough. You do not need to find a lesson, explanation, or hidden significance.
 
-Do not say or imply that a behavior may happen "when," "after," "because of," "with," or "as" a reported context changes.
+Keep health assessments, reassurance about symptoms, advice, questions, and alert commentary out of this response.
 
-Do not tell the owner to log, track, watch, monitor, wait, compare, or look for a relationship between observations. Know Better records observations; it does not ask owners to perform analysis.
-</boundaries>
-
-<non_alert_task>
-This is a non-alert observation. There is no verified pattern, baseline deviation, or health-risk conclusion unless it appears explicitly in <verified_app_data>.
-
-Respond as a caring companion who is genuinely paying attention to this specific dog, not like a system logging a report. Acknowledge what the owner shared in a way that feels natural and human, grounded in the specific detail they gave. You may briefly note that building up everyday observations helps clarify what is normal for this individual dog, but only if it fits naturally. Do not force it into every response as a formula.
-
-Do not claim or imply a trend, relationship, cause, risk, improvement, safety, or recommendation.
-</non_alert_task>
+The dog's name is in the verified data below. Use only that name. Do not use any name from the owner's message.
+Use plain language, periods, and commas. No em dashes.
 
 <examples>
-  <example>
-    <input>
-      Owner message: "Simmy has been scratching more. The weather has been cold."
+Owner: "Kind of a rough day — she was restless and couldn't settle."
+Know Better: Not every day settles the way you'd like. These ones are part of knowing Max too.
 
-      Verified app data:
-      - Dog name: Simmy
-      - Response state: concerning
-      - Verified deviation: false
-      - Alert level: none
-    </input>
+Owner: "She didn't touch her dinner tonight. I think the heat is getting to her."
+Know Better: Skipped dinner, with her own explanation alongside it. Good to have both.
 
-    <do_not_write>
-      As you continue tracking, it will become clearer whether this happens consistently when temperatures drop.
-    </do_not_write>
+Owner: "She was limping a bit on her front left after our walk."
+Know Better: Something was off in Bella's stride today, showing up after the walk. Front left leg, and you caught it.
 
-    <why_not>
-      This frames colder weather as a possible relationship to investigate. Weather may be recorded as context, but it must not be presented as a suspected cause or correlation.
-    </why_not>
+Owner: "Max ate really well, drank lots of water, and seemed happy all day."
+Know Better: When appetite, hydration, and mood all line up like this, that's Max showing you what a good day looks like for him.
 
-    <ideal_response>
-      Good to know about the scratching. Days like this, alongside the weather context, are exactly what help build a picture of what's normal for Simmy over time.
-    </ideal_response>
-  </example>
+Owner: "He just seemed quieter than usual today, nothing specific."
+Know Better: A quieter day for Max, less of his usual energy. Some days are just like that.
 
-  <example>
-    <input>
-      Owner message: "Simmy had an active day today."
-
-      Verified app data:
-      - Dog name: Simmy
-      - Response state: normal
-      - Verified deviation: false
-      - Alert level: none
-    </input>
-
-    <do_not_write>
-      I have noted that Simmy had an active day. As you continue recording observations like this, they will help build a fuller picture of what's typical for Simmy.
-    </do_not_write>
-
-    <why_not>
-      This sounds like a filing system, not a companion. It is formulaic, impersonal, and does not engage with the specific observation at all.
-    </why_not>
-
-    <ideal_response>
-      An active day for Simmy. These are just as worth capturing as quieter ones, and they're what helps you understand what's normal for her.
-    </ideal_response>
-  </example>
+Owner: "Max was fine today."
+Know Better: Easy days matter too. They're part of building a picture of what Max's normal actually looks like.
 </examples>
 
-<style>
-Be caring, plainspoken, calm, and natural.
-Do not ask a question. Do not praise or compliment the owner.
-Do not repeat the owner's message verbatim.
-Do not open with "I hear you," "It sounds like," "I can see that," "I have noted," "I've noted," "I've recorded," "Noted," or "I'll note."
-Do not use clinical language, disclaimers, bullet points, headings, emojis, or quotation marks.
-Never use an em dash (—). Use a comma, period, or rephrase instead.
-Do not use the words "baseline," "pattern engine," "deviation," or "alert." Use plain language instead (e.g. "what's normal for [dog name]").
-</style>
-
-<output>
-Return only the owner-facing response. Keep it to one or two sentences.
-</output>
+<verified_app_data>
+Dog name: ${name}
+Response type: routine journal reflection
+</verified_app_data>
 
 <owner_message>
 ${transcriptionText}
 </owner_message>
 
-<verified_app_data>
-- Dog name: ${name}
-- Verified deviation: false
-- Alert level: none
-</verified_app_data>`;
+Return only the response.`;
     let systemPrompt;
     if (alertLevel === 3) {
       systemPrompt = `${constitution} This is the ${consecutiveDays} consecutive day of concerning observations for ${name}.${symptomContext} Lead with a clear, direct recommendation to contact their vet today. Briefly note the pattern you have been tracking. Do not repeat what the owner just said. ${sharedRules}`;
@@ -1980,7 +1943,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         const spanWhisper = checkInTrace.span({ name: 'whisper', startTime: new Date() });
         const audioBase64 = await blobToBase64(blob);
         const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
-          body: { audio_base64: audioBase64, mime_type: blob.type, language: 'en' },
+          body: { audio_base64: audioBase64, mime_type: blob.type, language: 'en', prompt: dogName ? `My dog's name is ${dogName}.` : undefined },
         });
         if (transcribeError) throw transcribeError;
         spanWhisper.end({ endTime: new Date() });
@@ -2043,7 +2006,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         const nativeBlob = await fetch(uri).then(r => r.blob());
         const audioBase64 = await blobToBase64(nativeBlob);
         const { data: result, error: transcribeError } = await supabase.functions.invoke('transcribe', {
-          body: { audio_base64: audioBase64, mime_type: 'audio/m4a', language: 'en' },
+          body: { audio_base64: audioBase64, mime_type: 'audio/m4a', language: 'en', prompt: dogName || undefined },
         });
         if (transcribeError) throw transcribeError;
         spanWhisper.end({ endTime: new Date() });
@@ -2385,7 +2348,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               </TouchableOpacity>
             )}
 
-            {!!transcription && (
+            {!!transcription && inputMode === 'voice' && (
               <View style={checkIn.transcriptionCard}>
                 <Text style={checkIn.transcriptionText}>{transcription}</Text>
               </View>
@@ -3012,6 +2975,19 @@ function ReportScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
         <Text style={report_.weekPageIndicator}>Week {activeWeekIndex + 1} of {weeks.length}</Text>
+
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 10 }}>
+          {[
+            { color: '#059669', label: 'Normal' },
+            { color: '#D97706', label: 'Change noted' },
+            { color: '#E5E7EB', label: 'No check-in' },
+          ].map(({ color, label }) => (
+            <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
+              <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{label}</Text>
+            </View>
+          ))}
+        </View>
 
         {selectedDay && (
           <View style={report_.popover}>
@@ -4243,6 +4219,8 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+
     const handleNotificationNav = (data) => {
       if (!data) return;
       if (data.type === 'morning_nudge') {
@@ -4625,6 +4603,7 @@ const dogAge = StyleSheet.create({
   ageRow: {
     flexDirection: 'row',
     gap: 12,
+    zIndex: 10,
   },
   ageCol: {
     flex: 1,

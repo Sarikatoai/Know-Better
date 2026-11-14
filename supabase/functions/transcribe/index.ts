@@ -9,7 +9,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { audio_base64, mime_type, language = 'en' } = await req.json();
+    const { audio_base64, mime_type, language = 'en', prompt } = await req.json();
 
     const audioBytes = Uint8Array.from(atob(audio_base64), (c) => c.charCodeAt(0));
     const audioBlob = new Blob([audioBytes], { type: mime_type });
@@ -19,6 +19,7 @@ Deno.serve(async (req: Request) => {
     formData.append('file', audioBlob, `recording.${ext}`);
     formData.append('model', 'whisper-1');
     formData.append('language', language);
+    if (prompt) formData.append('prompt', prompt);
 
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',

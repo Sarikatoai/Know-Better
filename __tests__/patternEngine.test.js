@@ -5,6 +5,7 @@ import {
   computeAlertLevel,
   computeCombinationAlertLevel,
   computeFinalAlertLevel,
+  computeSymptomPersistence,
 } from '../lib/patternEngine';
 
 // ─── isDayConcerning ──────────────────────────────────────────────────────────
@@ -212,6 +213,84 @@ describe('computeCombinationAlertLevel', () => {
 
   test('null: ccfd=1 — below all thresholds', () => {
     expect(computeCombinationAlertLevel({ low_signal_count_today: 0, consecutive_combination_days: 1, total_days: 5 })).toBeNull();
+  });
+});
+
+// ─── computeSymptomPersistence ────────────────────────────────────────────────
+
+describe('computeSymptomPersistence', () => {
+  const anchor = new Date('2026-09-21T12:00:00Z').getTime();
+
+  const dayOffset = (n) => new Date(anchor - n * 24 * 60 * 60 * 1000).toISOString();
+
+  test('empty rows returns empty arrays', () => {
+    const result = computeSymptomPersistence([], anchor);
+    expect(result.persistent_physical_symptoms).toEqual([]);
+    expect(result.persistent_behavioral_changes).toEqual([]);
+  });
+
+  test('symptom on only 1 day is not persistent', () => {
+    const rows = [{ created_at: dayOffset(0), physical_symptoms: ['limping'], behavioral_changes: [] }];
+    const result = computeSymptomPersistence(rows, anchor);
+    expect(result.persistent_physical_symptoms).toEqual([]);
+  });
+
+  test('symptom on 2 days is persistent', () => {
+    const rows = [
+      { created_at: dayOffset(0), physical_symptoms: ['limping'], behavioral_changes: [] },
+      { created_at: dayOffset(2), physical_symptoms: ['limping'], behavioral_changes: [] },
+    ];
+    const result = computeSymptomPersistence(rows, anchor);
+    expect(result.persistent_physical_symptoms).toContain('limping');
+  });
+
+  test('behavioral change on 2 days is persistent', () => {
+    const rows = [
+      { created_at: dayOffset(0), physical_symptoms: [], behavioral_changes: ['hiding'] },
+      { created_at: dayOffset(3), physical_symptoms: [], behavioral_changes: ['hiding'] },
+    ];
+    const result = computeSymptomPersistence(rows, anchor);
+    expect(result.persistent_behavioral_changes).toContain('hiding');
+  });
+
+  test('two different symptoms each on 2+ days are both returned', () => {
+    const rows = [
+      { created_at: dayOffset(0), physical_symptoms: ['limping', 'scratching'], behavioral_changes: [] },
+      { created_at: dayOffset(1), physical_symptoms: ['limping'], behavioral_changes: [] },
+      { created_at: dayOffset(2), physical_symptoms: ['scratching'], behavioral_changes: [] },
+    ];
+    const result = computeSymptomPersistence(rows, anchor);
+    expect(result.persistent_physical_symptoms).toContain('limping');
+    expect(result.persistent_physical_symptoms).toContain('scratching');
+  });
+
+  test('multiple rows on the same day count as one day for persistence', () => {
+    const rows = [
+      { created_at: dayOffset(0), physical_symptoms: ['limping'], behavioral_changes: [] },
+      { created_at: dayOffset(0), physical_symptoms: ['limping'], behavioral_changes: [] },
+    ];
+    const result = computeSymptomPersistence(rows, anchor);
+    expect(result.persistent_physical_symptoms).toEqual([]);
+  });
+
+  test('symptom older than 7 days is ignored', () => {
+    const rows = [
+      { created_at: dayOffset(0), physical_symptoms: ['limping'], behavioral_changes: [] },
+      { created_at: dayOffset(8), physical_symptoms: ['limping'], behavioral_changes: [] },
+    ];
+    const result = computeSymptomPersistence(rows, anchor);
+    expect(result.persistent_physical_symptoms).toEqual([]);
+  });
+
+  test('null physical_symptoms and behavioral_changes are handled gracefully', () => {
+    const rows = [
+      { created_at: dayOffset(0), physical_symptoms: null, behavioral_changes: null },
+      { created_at: dayOffset(1), physical_symptoms: null, behavioral_changes: null },
+    ];
+    expect(() => computeSymptomPersistence(rows, anchor)).not.toThrow();
+    const result = computeSymptomPersistence(rows, anchor);
+    expect(result.persistent_physical_symptoms).toEqual([]);
+    expect(result.persistent_behavioral_changes).toEqual([]);
   });
 });
 
