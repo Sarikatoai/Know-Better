@@ -103,10 +103,6 @@ const blobToBase64 = (blob) => new Promise((resolve, reject) => {
 
 const Stack = createNativeStackNavigator();
 
-const AUTH_REDIRECT_URL = Platform.OS === 'web'
-  ? 'http://localhost:8081'
-  : 'exp://w-kgbem-anonymous-8081.exp.direct';
-
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 
 const T = {
