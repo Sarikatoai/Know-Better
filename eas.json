@@ -7,16 +7,23 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "env": {
         "APP_VARIANT": "development"
       }
     },
-    "preview": {
-      "distribution": "internal"
+    "beta": {
+      "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "APP_VARIANT": "beta"
+      }
     },
     "production": {
       "autoIncrement": true,
+      "environment": "production",
       "env": {
+        "APP_VARIANT": "production",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     }

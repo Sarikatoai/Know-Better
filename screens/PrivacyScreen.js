@@ -11,7 +11,7 @@ export default function PrivacyScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Privacy Policy</Text>
-        <Text style={styles.lastUpdated}>Last updated: August 1, 2026</Text>
+        <Text style={styles.lastUpdated}>Last updated: November 2026</Text>
 
         <Section heading="Introduction">
           Know Better is an AI-powered mobile app that helps dog owners track behavioral patterns and detect health changes early. This policy explains what personal information we collect, why we collect it, and how you can control it.{'\n\n'}We collect only what we need to provide the service, and we are committed to being transparent about every third party that touches your information.
@@ -48,6 +48,9 @@ export default function PrivacyScreen({ navigation }) {
         </Section>
 
         <Section heading="Third-Party Services">
+          <SubSection heading="OpenAI (Whisper API)">
+            Your voice recordings are sent to OpenAI's Whisper API for transcription. OpenAI receives only the audio file — not your name, email, or dog profile. Per OpenAI's API data usage policy, data submitted via the API is not used to train their models.
+          </SubSection>
           <SubSection heading="Anthropic (Claude API)">
             Your check-in text is sent to Anthropic's Claude API for classification and response generation. Per Anthropic's API data retention policy, prompt and completion data is automatically deleted after 7 days and is never used to train Anthropic's models. We do not send your name or email to Anthropic — only the check-in text and relevant dog context.
           </SubSection>
