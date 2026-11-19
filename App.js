@@ -1478,8 +1478,8 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         .from('baselines')
         .select('baseline_data')
         .eq('dog_id', dogId)
-        .single();
-      if (error) { console.log('[Deviation] baseline read error:', error); return null; }
+        .maybeSingle();
+      if (error) { console.log('[Deviation] baseline read error:', error); return { alertLevel: null, consecutiveDays: 0, alertId: null, persistentSymptoms: [] }; }
 
       const b = data?.baseline_data;
       if (!b?.baseline_active) {
