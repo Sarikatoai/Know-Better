@@ -1096,7 +1096,7 @@ function CheckInScreen({ navigation, route }) {
       setCurrentDogId(dogId);
       fetchDailyCount(dogId);
       if (lastCiRes.data?.created_at) setLastCheckInAt(lastCiRes.data.created_at);
-      if (normalCiRes.data) setNormalDaysThisMonth(new Set(normalCiRes.data.map(c => c.created_at.slice(0, 10))).size);
+      if (normalCiRes.data) setNormalDaysThisMonth(new Set(normalCiRes.data.map(c => new Date(c.created_at).toLocaleDateString('en-CA'))).size);
       setStatsLoaded(true);
       const familyMemberId = familyRes.data?.family_member_id;
       if (familyMemberId) familyMemberIdRef.current = familyMemberId;
@@ -2717,7 +2717,7 @@ const generateVetReport = async (dogId, year, month) => {
   let concerning_day_count = 0;
 
   for (let i = 0; i < periodDays; i++) {
-    const day = localDayKey(new Date(periodStartDate.getTime() + i * 24 * 60 * 60 * 1000));
+    const day = localDayKey(new Date(periodStartDate.getFullYear(), periodStartDate.getMonth(), periodStartDate.getDate() + i));
     const dayCheckIns = checkInsByDay[day] ?? [];
     const dayAlerts = alertsByDay[day] ?? [];
     const dayHealthEvents = healthEventsByDay[day] ?? [];
@@ -2927,9 +2927,9 @@ function ReportScreen({ navigation, route }) {
           {(() => {
             const normal = summary_data.normal_day_count;
             const off = summary_data.concerning_day_count;
-            if (off === 0) return `${normal} normal days`;
+            if (off === 0) return `${normal} normal ${normal === 1 ? 'day' : 'days'}`;
             if (normal === 0) return `${off} ${off === 1 ? 'off day' : 'off days'}, no normal days yet`;
-            return `${off} ${off === 1 ? 'off day' : 'off days'} of ${normal} normal days`;
+            return `${off} ${off === 1 ? 'off day' : 'off days'} of ${normal} normal ${normal === 1 ? 'day' : 'days'}`;
           })()}
         </Text>
         <Text style={report_.dayHelper}>
