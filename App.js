@@ -66,19 +66,8 @@ if (typeof localStorage === 'undefined') {
 }
 
 // ─── Langfuse — LLM observability ────────────────────────────────────────────
-let langfuse;
-try {
-  langfuse = new Langfuse({
-    publicKey: process.env.EXPO_PUBLIC_LANGFUSE_PUBLIC_KEY,
-    secretKey: process.env.EXPO_PUBLIC_LANGFUSE_SECRET_KEY,
-    baseUrl: process.env.EXPO_PUBLIC_LANGFUSE_HOST || 'https://us.cloud.langfuse.com',
-    flushAt: 1,
-    flushInterval: 10000,
-  });
-} catch (e) {
-  console.log('[Langfuse] init failed:', e?.message);
-  langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ id: 'stub', generation: () => ({ end: () => {} }), span: () => ({ end: () => {} }), end: () => {} }) };
-}
+// Stubbed pending migration to Langfuse SDK v6 (@langfuse/tracing) for v4 Cloud
+const langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ id: 'stub', generation: () => ({ end: () => {} }), span: () => ({ end: () => {} }), end: () => {} }) };
 
 // ─── Analytics event logger ──────────────────────────────────────────────────
 const logAnalyticsEvent = async (userId, eventName, eventData = {}) => {
@@ -1226,7 +1215,7 @@ function CheckInScreen({ navigation, route }) {
     return c;
   };
 
-  const saveCheckIn = async (blob, mimeType, transcriptionText, inputClassification = 'irrelevant', treatmentActive = false) => {
+  const saveCheckIn = async (transcriptionText, inputClassification = 'irrelevant', treatmentActive = false) => {
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
@@ -1236,25 +1225,13 @@ function CheckInScreen({ navigation, route }) {
     }
 
     try {
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : 'webm';
-      const path = `${userId}/${dogId}/${Date.now()}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from('checkins')
-        .upload(path, blob, { contentType: mimeType });
-      if (uploadError) {
-        console.log('[CheckIn] storage upload error:', uploadError);
-        return null;
-      }
-      const { data: urlData } = supabase.storage.from('checkins').getPublicUrl(path);
-      const audioUrl = urlData?.publicUrl;
-
       const { data: checkInData, error: checkInError } = await supabase
         .from('check_ins')
         .insert({
           dog_id: dogId,
           family_member_id: familyMemberId,
           check_in_type: 'morning',
-          audio_file_url: audioUrl,
+          audio_file_url: null,
           whisper_raw_text: transcriptionText,
           check_in_text: transcriptionText,
           transcription_status: 'completed',
@@ -1465,7 +1442,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const { error: upsertError } = await supabase
         .from('baselines')
-        .upsert({ dog_id: dogId, baseline_data }, { onConflict: 'dog_id' });
+        .upsert({ dog_id: dogId, baseline_data, baseline_updated_at: new Date().toISOString() }, { onConflict: 'dog_id' });
       if (upsertError) console.log('[Baseline] upsert error:', upsertError);
     } catch (err) {
       console.log('[Baseline] error:', err);
@@ -1950,7 +1927,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             getActiveTreatment(dogIdRef.current),
           ]);
           const spanSave = checkInTrace.span({ name: 'save-checkin', startTime: new Date() });
-          const checkInId = await saveCheckIn(blob, blob.type, result.text, classification, treatmentActive);
+          const checkInId = await saveCheckIn(result.text, classification, treatmentActive);
           spanSave.end({ endTime: new Date() });
           if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {
@@ -2013,7 +1990,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
             getActiveTreatment(dogIdRef.current),
           ]);
           const spanSave = checkInTrace.span({ name: 'save-checkin', startTime: new Date() });
-          const checkInId = await saveCheckIn(nativeBlob, 'audio/m4a', result.text, classification, treatmentActive);
+          const checkInId = await saveCheckIn(result.text, classification, treatmentActive);
           spanSave.end({ endTime: new Date() });
           if (checkInId) logAnalyticsEvent(userIdRef.current, 'check_in_created', { dog_id: dogIdRef.current, check_in_type: 'voice', classification });
           if (classification === 'health_event') {

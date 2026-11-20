@@ -16,7 +16,7 @@
     "expo-linking": "~8.0.12",
     "expo-notifications": "~0.32.17",
     "expo-status-bar": "~3.0.9",
-    "langfuse": "^3.38.20",
+    "langfuse": "3.39.2",
     "patch-package": "^8.0.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
