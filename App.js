@@ -1,6 +1,5 @@
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
-import { Langfuse } from 'langfuse';
 import { supabase } from './lib/supabase';
 import {
   localDayKey,
@@ -31,6 +30,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaProvider, useSafeAreaInsets, initialWindowMetrics } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
+  AccessibilityInfo,
   Alert,
   Animated,
   Dimensions,
@@ -1029,6 +1029,9 @@ function CheckInScreen({ navigation, route }) {
   const pulse = useRef(new Animated.Value(1)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
   const scrollRef = useRef(null);
+  const greetingAnim = useRef(new Animated.Value(1)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const [greetingCollapsed, setGreetingCollapsed] = useState(false);
   const textInputLayoutY = useRef(0);
   const recordingRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -1141,6 +1144,7 @@ function CheckInScreen({ navigation, route }) {
     setActiveAlertId(null);
     setAlertAcknowledged(false);
     setLastCheckInAt(null);
+    setGreetingCollapsed(false);
     setNormalDaysThisMonth(null);
     setStatsLoaded(false);
 
@@ -1165,6 +1169,7 @@ function CheckInScreen({ navigation, route }) {
       setTypedText('');
       setInputExpanded(false);
       setQuickSelections({ potty: null, activity: null, mood: null });
+      setGreetingCollapsed(false);
     });
     return unsubscribe;
   }, [navigation]);
@@ -1177,6 +1182,22 @@ function CheckInScreen({ navigation, route }) {
     });
     return () => sub.remove();
   }, []);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (claudeResponse) setGreetingCollapsed(true);
+  }, [claudeResponse]);
+
+  useEffect(() => {
+    Animated.timing(greetingAnim, {
+      toValue: greetingCollapsed ? 0 : 1,
+      duration: reduceMotion ? 0 : 250,
+      useNativeDriver: false,
+    }).start();
+  }, [greetingCollapsed, reduceMotion]);
 
   useEffect(() => {
     if (recordingState === 'recording') {
@@ -1293,7 +1314,7 @@ function CheckInScreen({ navigation, route }) {
   const extractHealthEvent = async (transcriptionText, checkInId, dogId, familyMemberId) => {
     const generation = langfuse.generation({
       name: 'Claude - Health Event Extraction',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       userId: userIdRef.current ?? undefined,
       metadata: { dog_id: dogId, check_in_id: checkInId },
       input: transcriptionText,
@@ -1302,7 +1323,7 @@ function CheckInScreen({ navigation, route }) {
     try {
       const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
         body: {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-6',
           max_tokens: 256,
           system: `You are analyzing a dog owner's check-in that mentions a significant medical event. Extract the following and return as JSON only:
 { "event_title": "brief title of the event", "event_type": "critical, medium, or low", "event_description": "what happened in plain language", "treatment_active": true }
@@ -1460,7 +1481,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
 
       const b = data?.baseline_data;
       if (!b?.baseline_active) {
-        return { alertLevel: null, consecutiveDays: 0 };
+        return { alertLevel: null, consecutiveDays: 0, alertId: null, persistentSymptoms: [] };
       }
 
       // Alert suppression: max one alert per day
@@ -1473,7 +1494,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         .gte('created_at', todayStart.toISOString())
         .limit(1);
       if (todayAlerts && todayAlerts.length > 0) {
-        return { alertLevel: null, consecutiveDays: 0 };
+        return { alertLevel: null, consecutiveDays: 0, alertId: null, persistentSymptoms: [] };
       }
 
       const ccd = b.consecutive_concerning_days ?? 0;
@@ -1511,7 +1532,7 @@ event_type guide: critical = surgery, hospitalization, serious diagnosis. medium
         }
       }
 
-      const consecutiveDays = (alertLevel ?? 0) >= (combinationAlertLevel ?? 0) ? ccd : ccfd;
+      const consecutiveDays = Math.max(ccd, ccfd);
       const persistentSymptoms = [
         ...(b.persistent_physical_symptoms ?? []),
         ...(b.persistent_behavioral_changes ?? []),
@@ -1602,14 +1623,14 @@ Return only the response.`;
     });
     const generation = trace.generation({
       name: traceLabel,
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       input: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcriptionText }],
       startTime: new Date(),
     });
     try {
       const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
         body: {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-6',
           max_tokens: 256,
           stream: false,
           system: systemPrompt,
@@ -2182,23 +2203,34 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
           </TouchableOpacity>
         ) : null}
 
-        {userName ? (
-          <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName}.</Text>
-        ) : null}
-        <Text style={checkIn.question}>How is {dogName || 'your dog'} doing today?</Text>
-
-        <View style={{ minHeight: 44 }}>
-          {statsLoaded && lastCheckInAt === null && dogName ? (
-            <Text style={checkIn.firstCheckInHint}>Daily check-ins help Know Better learn {dogName}'s normal patterns and notice changes over time.</Text>
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            overflow: 'hidden',
+            opacity: greetingAnim,
+            maxHeight: greetingAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 140] }),
+          }}
+        >
+          {userName ? (
+            <Text style={checkIn.greeting}>Good {getTimeOfDay()}, {userName}.</Text>
           ) : null}
-        </View>
+          <Text style={checkIn.question}>How is {dogName || 'your dog'} doing today?</Text>
+          <View style={{ minHeight: 44 }}>
+            {statsLoaded && lastCheckInAt === null && dogName ? (
+              <Text style={checkIn.firstCheckInHint}>Daily check-ins help Know Better learn {dogName}'s normal patterns and notice changes over time.</Text>
+            ) : null}
+          </View>
+        </Animated.View>
 
         <>
             <View style={checkIn.modeToggle}>
               <TouchableOpacity
-                style={[checkIn.modeBtn, inputMode === 'voice' && checkIn.modeBtnActive]}
+                style={[checkIn.modeBtn, inputMode === 'voice' && !quickSheetVisible && checkIn.modeBtnActive]}
                 onPress={() => { setInputMode('voice'); inputModeRef.current = 'voice'; setInputExpanded(false); }}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityState={{ selected: inputMode === 'voice' && !quickSheetVisible }}
+                accessibilityLabel="Voice check-in"
               >
                 <MaterialCommunityIcons
                   name="microphone"
@@ -2208,9 +2240,12 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                 <Text style={[checkIn.modeBtnText, inputMode === 'voice' && checkIn.modeBtnActiveText]}>Voice</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[checkIn.modeBtn, inputMode === 'type' && checkIn.modeBtnActive]}
+                style={[checkIn.modeBtn, inputMode === 'type' && !quickSheetVisible && checkIn.modeBtnActive]}
                 onPress={() => { setInputMode('type'); inputModeRef.current = 'type'; setInputExpanded(false); }}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityState={{ selected: inputMode === 'type' && !quickSheetVisible }}
+                accessibilityLabel="Type check-in"
               >
                 <MaterialCommunityIcons
                   name="keyboard-outline"
@@ -2218,6 +2253,22 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                   color={inputMode === 'type' ? '#0F6E56' : '#9CA3AF'}
                 />
                 <Text style={[checkIn.modeBtnText, inputMode === 'type' && checkIn.modeBtnActiveText]}>Type</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[checkIn.modeBtn, quickSheetVisible && checkIn.modeBtnActive, isAtLimit && { opacity: 0.4 }]}
+                onPress={openQuickSheet}
+                activeOpacity={0.85}
+                disabled={isAtLimit}
+                accessibilityRole="button"
+                accessibilityState={{ selected: quickSheetVisible, disabled: isAtLimit }}
+                accessibilityLabel="Quick log"
+              >
+                <MaterialCommunityIcons
+                  name="lightning-bolt"
+                  size={15}
+                  color="#9CA3AF"
+                />
+                <Text style={checkIn.modeBtnText}>Quick</Text>
               </TouchableOpacity>
             </View>
 
@@ -2314,14 +2365,8 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               </>
             )}
 
-            {!isAtLimit && !isProcessing && (
-              <TouchableOpacity style={checkIn.quickLogLink} onPress={openQuickSheet} activeOpacity={0.7}>
-                <MaterialCommunityIcons name="lightning-bolt" size={13} color="#0F6E56" />
-                <Text style={checkIn.quickLogLinkText}>Quick log</Text>
-              </TouchableOpacity>
-            )}
 
-            {!!transcription && inputMode === 'voice' && (
+            {!!transcription && inputMode === 'voice' && !greetingCollapsed && (
               <View style={checkIn.transcriptionCard}>
                 <Text style={checkIn.transcriptionText}>{transcription}</Text>
               </View>
