@@ -1687,13 +1687,16 @@ Return only the response.`;
 
   const resetBaseline = async (dogId) => {
     if (!dogId) return;
-    await supabase.from('baselines').update({
+    const { data } = await supabase.from('baselines').select('baseline_data').eq('dog_id', dogId).maybeSingle();
+    const updated = {
+      ...(data?.baseline_data ?? {}),
       baseline_active: false,
       consecutive_concerning_days: 0,
       consecutive_combination_days: 0,
       concerning_rate: 0,
       low_signal_count_today: 0,
-    }).eq('dog_id', dogId);
+    };
+    await supabase.from('baselines').update({ baseline_data: updated }).eq('dog_id', dogId);
   };
 
   const acknowledgeAlert = async () => {
@@ -3468,13 +3471,16 @@ function AlertsHistoryScreen({ navigation, route }) {
   };
 
   const resetBaselineForDog = async (id) => {
-    await supabase.from('baselines').update({
+    const { data } = await supabase.from('baselines').select('baseline_data').eq('dog_id', id).maybeSingle();
+    const updated = {
+      ...(data?.baseline_data ?? {}),
       baseline_active: false,
       consecutive_concerning_days: 0,
       consecutive_combination_days: 0,
       concerning_rate: 0,
       low_signal_count_today: 0,
-    }).eq('dog_id', id);
+    };
+    await supabase.from('baselines').update({ baseline_data: updated }).eq('dog_id', id);
   };
 
   const handleAcknowledge = async () => {
@@ -3683,7 +3689,7 @@ function AlertsHistoryScreen({ navigation, route }) {
         <View style={ah.modalOverlay}>
           <View style={ah.modalSheet}>
             <Text style={ah.modalTitle}>Acknowledge Alert?</Text>
-            <Text style={ah.modalBody}>We'll track this. Let us know when you see your vet.</Text>
+            <Text style={ah.modalBody}>{(ALERT_LEVEL_NUM[selectedAlert?.alert_level] ?? 1) === 1 ? "Got it — we'll keep watching." : "We'll track this. Let us know when you see your vet."}</Text>
             <TouchableOpacity style={ah.modalPrimaryBtn} onPress={handleAcknowledge} disabled={isAcknowledging} activeOpacity={0.85}>
               <Text style={ah.modalPrimaryBtnText}>{isAcknowledging ? 'Acknowledging…' : 'Acknowledge'}</Text>
             </TouchableOpacity>

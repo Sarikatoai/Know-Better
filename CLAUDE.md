@@ -25,7 +25,7 @@ MVP Phase 1 complete:
 - Returning user goes straight to check-in
 - Voice recording via MediaRecorder (web) and expo-av (mobile)
 - Whisper API transcription working
-- Claude API response generating (model: claude-sonnet-4-5)
+- Claude API response generating (model: claude-sonnet-4-6)
 - Audio saved to Supabase storage bucket: checkins
 - Check-in saved to check_ins table
 - Response saved to responses table

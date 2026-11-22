@@ -58,7 +58,7 @@ Other household members can be added during onboarding with configurable permiss
 | Frontend | React Native + Expo SDK 54 |
 | Backend / Auth / DB | Supabase (Postgres + Auth + Storage) |
 | Transcription | OpenAI Whisper API |
-| AI Responses | Anthropic Claude API (claude-sonnet-4-5) |
+| AI Responses | Anthropic Claude API (claude-sonnet-4-6) |
 | Observability | Langfuse |
 
 The app is structured as a single-file MVP (`App.js`) with all screens co-located. Audio files are stored in Supabase Storage. All check-in data, baselines, and alerts live in Postgres with row-level security.

@@ -89,3 +89,40 @@ create policy "Users can insert their own analytics events"
 create policy "Users can select their own analytics events"
   on public.analytics_events for select
   using (user_id = auth.uid());
+
+-- 9. vet_reports table
+create table if not exists public.vet_reports (
+  report_id      uuid primary key default gen_random_uuid(),
+  dog_id         uuid references public.dogs(dog_id) on delete cascade,
+  period_start   date,
+  period_end     date,
+  generated_at   timestamptz default now(),
+  overall_status text,
+  summary_data   jsonb,
+  created_at     timestamptz default now()
+);
+
+create unique index if not exists vet_reports_dog_id_period_start_idx
+  on public.vet_reports (dog_id, period_start);
+
+alter table public.vet_reports enable row level security;
+
+create policy "Users can insert vet reports for their own dogs"
+  on public.vet_reports for insert
+  to authenticated
+  with check (
+    dog_id in (select dog_id from public.dogs where owner_id = auth.uid())
+  );
+
+create policy "Users can view vet reports for their own dogs"
+  on public.vet_reports for select
+  to authenticated
+  using (
+    dog_id in (select dog_id from public.dogs where owner_id = auth.uid())
+  );
+
+create policy "Users can update vet reports for their own dogs"
+  on public.vet_reports for update
+  to authenticated
+  using (dog_id in (select dog_id from public.dogs where owner_id = auth.uid()))
+  with check (dog_id in (select dog_id from public.dogs where owner_id = auth.uid()));
