@@ -66,7 +66,8 @@ if (typeof localStorage === 'undefined') {
 }
 
 // ─── Langfuse — LLM observability ────────────────────────────────────────────
-// Stubbed pending migration to Langfuse SDK v6 (@langfuse/tracing) for v4 Cloud
+// Stubbed: langfuse v3.x SDK deprecated for v4 Cloud (/api/public/ingestion returns 410)
+// Pending React Native-compatible SDK path for v4 Cloud from Langfuse support
 const langfuse = { generation: () => ({ end: () => {} }), trace: () => ({ id: 'stub', generation: () => ({ end: () => {} }), span: () => ({ end: () => {} }), end: () => {} }) };
 
 // ─── Analytics event logger ──────────────────────────────────────────────────
@@ -1810,7 +1811,7 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": null, "w
   const classifyCheckIn = async (transcriptionText, traceId = null) => {
     const generation = langfuse.generation({
       name: 'Claude - Classification',
-      model: 'claude-haiku-4-5',
+      model: 'claude-sonnet-4-6',
       traceId: traceId ?? undefined,
       userId: userIdRef.current ?? undefined,
       metadata: { dog_id: dogIdRef.current },
@@ -1820,7 +1821,7 @@ Example output: {"appetite": "skipped", "energy": "low", "elimination": null, "w
     try {
       const { data, error: claudeError } = await supabase.functions.invoke('claude-proxy', {
         body: {
-          model: 'claude-haiku-4-5',
+          model: 'claude-sonnet-4-6',
           max_tokens: 16,
           system: `You are analyzing a dog owner's daily voice check-in about their dog. Classify into exactly one of four categories using the rules below.
 
@@ -1839,7 +1840,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
         },
       });
       if (claudeError) throw claudeError;
-      const raw = data.content?.[0]?.text?.trim().toUpperCase();
+      const raw = (data.content?.[0]?.text ?? '').trim().toUpperCase().split(/\s/)[0].replace(/[^A-Z_]/g, '');
       const valid = ['NORMAL', 'CONCERNING', 'HEALTH_EVENT', 'IRRELEVANT'];
       const classification = valid.includes(raw) ? raw.toLowerCase() : 'irrelevant';
       generation.end({
