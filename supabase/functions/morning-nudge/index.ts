@@ -61,18 +61,23 @@ Deno.serve(async (req: Request) => {
 
       if (!dogs || dogs.length === 0) continue;
 
-      // Skip if already checked in today (any dog, user's local day)
-      const localDayStart = new Date(localNow);
-      localDayStart.setUTCHours(0, 0, 0, 0);
-      const localDayEnd = new Date(localNow);
-      localDayEnd.setUTCHours(23, 59, 59, 999);
+      // Skip if already checked in today (any dog, user's local day).
+      // Zero out local hours on the fake-shifted timestamp, then reverse the offset
+      // to get real UTC bounds — otherwise users in UTC- zones have their previous
+      // evening's check-ins caught in the wrong day's window.
+      const localDayStartFake = new Date(localNow);
+      localDayStartFake.setUTCHours(0, 0, 0, 0);
+      const localDayEndFake = new Date(localNow);
+      localDayEndFake.setUTCHours(23, 59, 59, 999);
+      const localDayStartUTC = new Date(localDayStartFake.getTime() - offsetMinutes * 60 * 1000);
+      const localDayEndUTC = new Date(localDayEndFake.getTime() - offsetMinutes * 60 * 1000);
 
       const { count: todayCount } = await supabase
         .from('check_ins')
         .select('check_in_id', { count: 'exact', head: true })
         .in('dog_id', dogs.map((d: any) => d.dog_id))
-        .gte('created_at', localDayStart.toISOString())
-        .lte('created_at', localDayEnd.toISOString());
+        .gte('created_at', localDayStartUTC.toISOString())
+        .lte('created_at', localDayEndUTC.toISOString());
 
       if ((todayCount ?? 0) > 0) continue;
 
