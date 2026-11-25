@@ -6,7 +6,7 @@ export default {
   expo: {
     name: IS_DEV ? "Know Better (Dev)" : IS_BETA ? "Know Better (Beta)" : "Know Better",
     slug: "Know-Better",
-    version: "1.1.0",
+    version: "1.2.0",
     orientation: "portrait",
     scheme: IS_DEV ? "knowbetter-dev" : IS_BETA ? "knowbetter-beta" : "knowbetter",
     icon: "./assets/splash-icon.png",
