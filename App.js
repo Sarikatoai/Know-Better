@@ -1025,6 +1025,8 @@ function CheckInScreen({ navigation, route }) {
   const [quickSheetVisible, setQuickSheetVisible] = useState(false);
   const quickSheetAnim = useRef(new Animated.Value(0)).current;
   const [inputExpanded, setInputExpanded] = useState(false);
+  const [submittedText, setSubmittedText] = useState('');
+  const [submittedExpanded, setSubmittedExpanded] = useState(false);
   const [dailyCount, setDailyCount] = useState(0);
   const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -1169,6 +1171,8 @@ function CheckInScreen({ navigation, route }) {
       setClaudeResponse('');
       setTypedText('');
       setInputExpanded(false);
+      setSubmittedText('');
+      setSubmittedExpanded(false);
       setQuickSelections({ potty: null, activity: null, mood: null });
       setGreetingCollapsed(false);
     });
@@ -2079,7 +2083,11 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
     if (!text) return;
     setRecordingState('processing');
     setTranscription(text);
-    if (overrideText === undefined) setTypedText('');
+    if (overrideText === undefined) {
+      setSubmittedText(text);
+      setSubmittedExpanded(false);
+      setTypedText('');
+    }
     const userId = userIdRef.current;
     const dogId = dogIdRef.current;
     const familyMemberId = familyMemberIdRef.current;
@@ -2176,7 +2184,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
       <ScrollView
         ref={scrollRef}
         style={checkIn.scrollArea}
-        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: 21 }]}
+        contentContainerStyle={[checkIn.scrollContent, inputMode === 'type' && { paddingBottom: inputExpanded ? 50 : 21 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -2327,22 +2335,40 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
               )
             ) : (
               <>
-                <TextInput
-                  style={[checkIn.typeInput, { height: inputExpanded ? 120 : 50 }]}
-                  multiline
-                  placeholder="e.g. Ate half her breakfast, a bit sleepy"
-                  placeholderTextColor="#9CA3AF"
-                  value={typedText}
-                  onChangeText={setTypedText}
-                  editable={!isProcessing && !isAtLimit}
-                  textAlignVertical="top"
-                  onLayout={(e) => { textInputLayoutY.current = e.nativeEvent.layout.y; }}
-                  onFocus={() => {
-                    setInputExpanded(true);
-                    setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, textInputLayoutY.current - 80), animated: true }), 100);
-                  }}
-                  onBlur={() => setInputExpanded(false)}
-                />
+                {submittedText ? (
+                  <TouchableOpacity
+                    style={[checkIn.typeInput, { height: submittedExpanded ? undefined : 50 }]}
+                    onPress={() => setSubmittedExpanded(v => !v)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={{ fontSize: 16, color: '#1F2937', lineHeight: 24 }}
+                      numberOfLines={submittedExpanded ? undefined : 1}
+                      ellipsizeMode="tail"
+                    >
+                      {submittedText}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TextInput
+                    style={[checkIn.typeInput, { maxHeight: 144 }]}
+                    multiline
+                    scrollEnabled
+                    showsVerticalScrollIndicator
+                    placeholder="e.g. Ate half her breakfast, a bit sleepy"
+                    placeholderTextColor="#9CA3AF"
+                    value={typedText}
+                    onChangeText={setTypedText}
+                    editable={!isProcessing && !isAtLimit}
+                    textAlignVertical="top"
+                    onLayout={(e) => { textInputLayoutY.current = e.nativeEvent.layout.y; }}
+                    onFocus={() => {
+                      setInputExpanded(true);
+                      setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, textInputLayoutY.current - 80), animated: true }), 100);
+                    }}
+                    onBlur={() => setInputExpanded(false)}
+                  />
+                )}
                 {isAtLimit ? (
                   <Text style={checkIn.rateLimitMsg}>
                     10 check-ins today, I'm all set. I'll see you tomorrow.
@@ -2351,7 +2377,7 @@ Return only one word: NORMAL, CONCERNING, HEALTH_EVENT, or IRRELEVANT.`,
                   <>
                     <TouchableOpacity
                       style={[checkIn.submitBtn, (!typedText.trim() || isProcessing || isAtLimit) && checkIn.submitBtnDisabled]}
-                      onPress={handleTextSubmit}
+                      onPress={() => handleTextSubmit()}
                       disabled={!typedText.trim() || isProcessing || isAtLimit}
                       activeOpacity={0.85}
                     >
@@ -5574,7 +5600,7 @@ const checkIn = StyleSheet.create({
   },
   typeInput: {
     width: '100%',
-    height: 50,
+    minHeight: 50,
     backgroundColor: '#FAFAF9',
     borderWidth: 1,
     borderColor: '#E5E7EB',
