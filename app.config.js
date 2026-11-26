@@ -17,7 +17,7 @@ export default {
     },
     userInterfaceStyle: "light",
     ios: {
-      supportsTablet: true,
+      supportsTablet: false,
       bundleIdentifier: IS_DEV
         ? "com.sarikasonawane.KnowBetter.dev"
         : IS_BETA
