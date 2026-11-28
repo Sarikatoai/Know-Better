@@ -146,7 +146,7 @@ export default function HelpScreen({ navigation }) {
           />
           <QA
             q="How long do you keep my data?"
-            a="Check-in notes are kept until you delete your account. Audio files are deleted after 30 days. See our Privacy Policy for full details."
+            a="Check-in notes and transcriptions are retained for 24 months. Your account and dog profile are retained until you delete your account. See our Privacy Policy for full details."
           />
           <QA
             q="Can I download my data?"
@@ -154,7 +154,7 @@ export default function HelpScreen({ navigation }) {
           />
           <QA
             q="How do I delete my account?"
-            a={'Email knowbettersupport@gmail.com with the subject "Delete my account." We\'ll remove all your data within 30 days and confirm when it\'s done.'}
+            a={'Go to Settings, then Delete account. You can also email knowbettersupport@gmail.com with the subject "Delete my account." We\'ll remove all your data within 30 days and confirm when it\'s done.'}
           />
         </Category>
 

@@ -23,10 +23,10 @@ export default function PrivacyScreen({ navigation }) {
 
         <Section heading="Information We Collect">
           <SubSection heading="Account and authentication data">
-            When you create an account, we collect your email address to authenticate you via a magic link. We do not store passwords.
+            When you create an account, we collect your email address to authenticate you via a one-time code sent to your email. We do not store passwords.
           </SubSection>
           <SubSection heading="Check-in notes and transcriptions">
-            When you log a check-in, we collect the text you enter or the transcription of your voice recording. Voice recordings are processed through Whisper (OpenAI's transcription API) and the resulting text is stored in your account. Raw audio files are stored separately.
+            When you log a check-in, we collect the text you enter or the transcription of your voice recording. Voice recordings are processed through Whisper (OpenAI's transcription API) and the resulting text is stored in your account.
           </SubSection>
           <SubSection heading="Dog profile information">
             We collect your dog's name, breed, sex, date of birth, and any pre-existing health conditions you choose to share. We also collect a mood rating at onboarding.
@@ -55,7 +55,7 @@ export default function PrivacyScreen({ navigation }) {
             Your check-in text is sent to Anthropic's Claude API for classification and response generation. Per Anthropic's API data retention policy, prompt and completion data is automatically deleted after 7 days and is never used to train Anthropic's models. We do not send your name or email to Anthropic — only the check-in text and relevant dog context.
           </SubSection>
           <SubSection heading="Supabase">
-            All user data — your account, dog profiles, check-in history, and audio files — is stored in Supabase. Our instance is hosted in the US West (Oregon) region and all data is encrypted at rest and in transit.
+            All user data — your account, dog profiles and check-in history — is stored in Supabase. Our instance is hosted in the US West (Oregon) region and all data is encrypted at rest and in transit.
           </SubSection>
           <SubSection heading="Sentry">
             Sentry captures error and crash reports when the app encounters a problem. Reports include device and app metadata, but not your personal account data or check-in content.
@@ -63,12 +63,14 @@ export default function PrivacyScreen({ navigation }) {
           <SubSection heading="Langfuse">
             Langfuse logs API call latency, token usage, and performance metrics for our Claude API integration. These logs are used for internal monitoring only. Langfuse does not have access to your full account data or personal profile.
           </SubSection>
+          <SubSection heading="Expo (Push Notifications)">
+            When you enable push notifications, your device push token is registered with Expo's push notification service, which routes notifications from our servers to your device via Apple Push Notification service (APNs). Expo receives the push token and notification content only — not your check-in data or personal profile.
+          </SubSection>
         </Section>
 
         <Section heading="Data Retention">
           {'Account and dog profile — retained until you delete your account\n\n' +
-           'Check-in notes and transcriptions — retained for 24 months after creation, then automatically deleted. You can manually delete check-ins at any time or export your data before expiration at knowbettersupport@gmail.com.\n\n' +
-           'Raw audio recordings — deleted after 30 days\n\n' +
+           'Check-in notes and transcriptions — retained for 24 months. To request deletion of your check-in history, email knowbettersupport@gmail.com.\n\n' +
            'Claude API inputs/outputs (Anthropic) — deleted after 7 days, never used for model training\n\n' +
            'Crash reports (Sentry) — deleted after 90 days\n\n' +
            'API performance logs (Langfuse) — deleted after 30 days'}
@@ -77,7 +79,7 @@ export default function PrivacyScreen({ navigation }) {
         <Section heading="Your Rights and Choices">
           {'Access your data — you can view all check-in history and dog profile information directly in the app.\n\n' +
            'Download your data — email us at knowbettersupport@gmail.com and we will prepare and send your data export within 30 days.\n\n' +
-           'Delete your account — email us at knowbettersupport@gmail.com with the subject line "Delete my account." We will complete the deletion within 30 days and confirm when it is done.\n\n' +
+           'Delete your account — You can delete your account in the app under Settings, then Delete account. You can also email us at knowbettersupport@gmail.com with the subject line "Delete my account." We will complete the deletion within 30 days and confirm when it is done.\n\n' +
            'To exercise any of these rights, contact knowbettersupport@gmail.com.'}
         </Section>
 
@@ -88,12 +90,12 @@ export default function PrivacyScreen({ navigation }) {
         <Section heading="Security">
           {'Encryption in transit — all data transmitted between your device and our servers uses TLS encryption.\n\n' +
            'Encryption at rest — your data stored in Supabase is encrypted at rest.\n\n' +
-           'Secure authentication — we use magic link authentication so you never create or store a password with us.\n\n' +
+           'Secure authentication — we use a one-time code authentication so you never create or store a password with us.\n\n' +
            'No system is completely secure. If you believe your account has been compromised, contact us immediately at knowbettersupport@gmail.com.'}
         </Section>
 
         <Section heading="Availability">
-          Know Better is currently available in English only in select regions worldwide, with the exception of the European Union, California, and Quebec. We may expand language support and regional availability in the future.
+          Know Better is currently available on iOS through the App Store in the United States only. We may expand to other regions and languages in the future, and we'll update this policy when we do.
         </Section>
 
         <Section heading="Changes to This Policy">

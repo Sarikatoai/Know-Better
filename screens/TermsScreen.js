@@ -49,7 +49,8 @@ export default function TermsScreen({ navigation }) {
           'Anthropic (Claude API) — AI analysis of check-in text\n' +
           'Supabase — data storage and authentication\n' +
           'Sentry — crash reporting\n' +
-          'Langfuse — API performance monitoring\n\n' +
+          'Langfuse — API performance monitoring\n' +
+          'Expo — push notification delivery\n\n' +
           'Each of these services operates under its own terms and privacy policies. We are not responsible for the practices of third-party providers.'}
         </Section>
 
